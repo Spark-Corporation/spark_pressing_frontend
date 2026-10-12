@@ -1,0 +1,63 @@
+name: Deploy Pressing Frontend
+
+on:
+  push:
+    branches: [main]
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build
+        run: NEXT_TURBOPACK=0 npm run build
+
+      - name: Archive build
+        run: tar --exclude='./.next/cache' -czf pressing-build.tar.gz .next/ public/
+
+      - name: Copy build to N0C
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.NOC_HOST }}
+          username: ${{ secrets.NOC_USER }}
+          port: ${{ secrets.NOC_PORT }}
+          key: ${{ secrets.NOC_SSH_KEY }}
+          source: pressing-build.tar.gz
+          target: ~/pressing/
+
+      - name: Extract and restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.NOC_HOST }}
+          username: ${{ secrets.NOC_USER }}
+          port: ${{ secrets.NOC_PORT }}
+          key: ${{ secrets.NOC_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            cd ~/pressing
+            rm -rf .next public
+            tar -xzf pressing-build.tar.gz
+            while [ ! -f .next/BUILD_ID ]; do sleep 10; done
+            mkdir -p .next/standalone/.next
+            cp -r .next/static .next/standalone/.next/static
+            cp -r public .next/standalone/public 2>/dev/null || true
+            cat > server.js << 'SERVEREOF'
+            process.env.PORT = 'passenger'
+            process.env.HOSTNAME = '127.0.0.1'
+            process.chdir(__dirname + '/.next/standalone')
+            require('./.next/standalone/server.js')
+            SERVEREOF
+            /usr/sbin/cloudlinux-selector restart --json --interpreter=nodejs --app-root=/home/onglqnhq/pressing
