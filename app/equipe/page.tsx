@@ -76,7 +76,7 @@ const roleBadge: Record<string, string> = {
 const AGENCES_INVITE = ["Cocody Angré", "Plateau Centre", "Marcory Zone 4", "Bingerville"];
 
 export default function EquipePage() {
-  const { updatePath } = useGlobalData();
+  const { updatePath, setProfileUser } = useGlobalData();
   const [membres, setMembres] = useState<Membre[]>(MEMBRES);
   const [invitations, setInvitations] = useState<Invitation[]>(INVITATIONS_INIT);
   const [onglet, setOnglet] = useState<Onglet>("utilisateurs");
@@ -351,6 +351,19 @@ export default function EquipePage() {
                                 onClick={() => toast.info(m.nom, { description: `${m.role} • ${m.agency}.` })}
                               >
                                 <Pencil className="size-3.5" />
+                              </Button>
+                                <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                title="Profil et sécurité"
+                                aria-label={`Profil et sécurité de ${m.nom}`}
+                                className="size-6"
+                                onClick={() => {
+                                  setProfileUser({ nom: m.nom, email: m.email, role: m.role, agency: m.agency });
+                                  updatePath("/parametres/profil");
+                                }}
+                              >
+                                <ShieldCheck className="size-3.5" />
                               </Button>
                               <DropdownMenu>
                                 <DropdownMenuTrigger

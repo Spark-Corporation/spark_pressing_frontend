@@ -124,15 +124,19 @@ export default function MultiAgencesPage() {
           </div>
           <div className="mt-4 flex h-44 items-end gap-1.5">
             {CA_BARS.map((v, i) => (
-              <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-                <div
-                  className={cn("w-full rounded-sm", i === CA_BARS.length - 1 ? "bg-secondary" : "bg-emerald-500")}
-                  style={{ height: `${v}%` }}
-                />
-                {[0, 2, 4, 6, 8, 10].includes(i) && (
-                  <span className="text-[10px] text-muted-foreground">{[1, 3, 5, 7, 9, 11][[0, 2, 4, 6, 8, 10].indexOf(i)]} sept.</span>
-                )}
-              </div>
+              <div
+                key={i}
+                title={`${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12][i]} sept.`}
+                className={cn("min-w-0 flex-1 rounded-sm", i === CA_BARS.length - 1 ? "bg-secondary" : "bg-emerald-500")}
+                style={{ height: `${v}%` }}
+              />
+            ))}
+          </div>
+          <div className="mt-1 flex gap-1.5">
+            {CA_BARS.map((_, i) => (
+              <span key={i} className="min-w-0 flex-1 text-center text-[10px] text-muted-foreground">
+                {[0, 2, 4, 6, 8, 10].includes(i) ? `${[1, 3, 5, 7, 9, 11][[0, 2, 4, 6, 8, 10].indexOf(i)]} sept.` : ""}
+              </span>
             ))}
           </div>
         </div>
