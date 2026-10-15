@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, ChevronDown, Menu, Search } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { AppIcon } from "@/components/ui/app-icon";
 import { useSyncExternalStore } from "react";
 import { useGlobalData } from "@/contexts/GlobalContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -83,7 +84,7 @@ export default function Header() {
         className="shrink-0 md:hidden"
         onClick={() => setMobileOpen(true)}
       >
-        <Menu className="size-5" />
+        <AppIcon name="menu" className="size-5" />
       </Button>
 
       {/* Fil d'ariane */}
@@ -95,7 +96,7 @@ export default function Header() {
 
       {/* Recherche */}
       <div className="relative w-full max-w-xl flex-1 lg:mx-auto">
-        <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+        <AppIcon name="search" className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           placeholder="Rechercher un client, téléphone ou code…"
           value={globalSearch}
@@ -117,7 +118,7 @@ export default function Header() {
           size="icon"
           className="relative rounded-full text-muted-foreground hover:text-foreground"
         >
-          <Bell className="size-[18px]" />
+          <AppIcon name="notification" className="size-[18px]" />
           <span className="absolute top-1 right-1 size-2 rounded-full bg-red-500 ring-2 ring-white" />
         </Button>
 

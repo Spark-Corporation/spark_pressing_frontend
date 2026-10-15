@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isAuthRoute = AUTH_ROUTES.some(
       (r) => pathname === r || pathname?.startsWith(r + "/"),
     );
-    // if (!isAuthRoute) router.push("/login");
+    if (!isAuthRoute) router.push("/login");
   }, [auth.isAuthenticated, pathname, router]);
 
   const login = (token: string, user?: User) => {

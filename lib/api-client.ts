@@ -1,3 +1,4 @@
+
 import { cookies } from "next/headers";
 
 export const API_BACKEND_URL = process.env.API_BACKEND_URL;
@@ -8,7 +9,11 @@ async function handleResponse(response: Response) {
       throw new Error("Non autorisé. Veuillez vous connecter.");
     }
     const error = await response.json().catch(() => ({ message: "Erreur inconnue" }));
-    throw new Error(error.details || error.error || error.message || "Une erreur est survenue sur le serveur");
+    const nested =
+      (Array.isArray(error?.errors) && error.errors[0]?.detail) || error?.meta?.message;
+    throw new Error(
+      error.details || error.error || error.message || nested || "Une erreur est survenue sur le serveur",
+    );
   }
   return response.json();
 }
@@ -29,7 +34,7 @@ export const api = {
   },
 
   // Fonction POST
-  post: async (endpoint: string, data: any, isFile: boolean = false) => {
+  post: async (endpoint: string, data: unknown, isFile: boolean = false) => {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
     const res = await fetch(`${API_BACKEND_URL}${endpoint}`, {
@@ -38,13 +43,13 @@ export const api = {
         ...(isFile ? {} : { "Content-Type": "application/json" }),
         ...(token && { Authorization: `Bearer ${token}` }),
       },
-      body: isFile ? data : JSON.stringify(data),
+      body: isFile ? (data as BodyInit) : JSON.stringify(data),
     });
     return handleResponse(res);
   },
 
   // Fonction PUT
-  put: async (endpoint: string, data: any) => {
+  put: async (endpoint: string, data: unknown) => {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
     const res = await fetch(`${API_BACKEND_URL}${endpoint}`, {
@@ -59,7 +64,7 @@ export const api = {
   },
 
   // Fonction PATCH
-  patch: async (endpoint: string, data?: any) => {
+  patch: async (endpoint: string, data?: unknown) => {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
     const res = await fetch(`${API_BACKEND_URL}${endpoint}`, {

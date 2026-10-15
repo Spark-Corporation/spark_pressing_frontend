@@ -1,0 +1,16 @@
+:root {
+  --pressing-black: #111111;
+  --pressing-white: #ffffff;
+  --pressing-gray-100: #f7f7f5;
+  --pressing-gray-300: #d9d9d6;
+  --pressing-gray-600: #666666;
+}
+
+.pressing-icon-luxe {
+  color: var(--pressing-black);
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

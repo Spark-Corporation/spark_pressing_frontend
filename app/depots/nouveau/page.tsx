@@ -1,22 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  BedDouble,
-  Briefcase,
-  Gem,
-  Layers,
-  Minus,
-  Plus,
-  Printer,
-  RefreshCw,
-  Search,
-  Shirt,
-  ShoppingBag,
-  WifiOff,
-  X,
-} from "lucide-react";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -45,17 +30,17 @@ interface Prestation {
   panierLabel: string;
   prix: number;
   unite: "piece" | "kilo";
-  icon: React.ElementType;
+  icon: AppIconName;
   iconBg: string;
 }
 
 const CATALOGUE: Prestation[] = [
-  { id: "chemise", label: "Chemise", panierLabel: "Chemise blanche", prix: 2000, unite: "piece", icon: Shirt, iconBg: "bg-slate-100 text-slate-500" },
-  { id: "pantalon", label: "Pantalon", panierLabel: "Pantalon laine", prix: 2500, unite: "piece", icon: Layers, iconBg: "bg-slate-100 text-slate-500" },
-  { id: "robe", label: "Robe", panierLabel: "Robe soie", prix: 3500, unite: "piece", icon: Gem, iconBg: "bg-amber-50 text-amber-600" },
-  { id: "costume", label: "Costume 2 p.", panierLabel: "Costume 2 pièces", prix: 6000, unite: "piece", icon: Briefcase, iconBg: "bg-amber-50 text-amber-700" },
-  { id: "couette", label: "Couette", panierLabel: "Couette 2 places", prix: 4500, unite: "kilo", icon: BedDouble, iconBg: "bg-amber-50 text-amber-600" },
-  { id: "linge", label: "Linge au kilo", panierLabel: "Linge courant", prix: 2000, unite: "kilo", icon: ShoppingBag, iconBg: "bg-slate-100 text-slate-500" },
+  { id: "chemise", label: "Chemise", panierLabel: "Chemise blanche", prix: 2000, unite: "piece", icon: "shirt", iconBg: "bg-slate-100 text-slate-500" },
+  { id: "pantalon", label: "Pantalon", panierLabel: "Pantalon laine", prix: 2500, unite: "piece", icon: "trousers", iconBg: "bg-slate-100 text-slate-500" },
+  { id: "robe", label: "Robe", panierLabel: "Robe soie", prix: 3500, unite: "piece", icon: "dress", iconBg: "bg-amber-50 text-amber-600" },
+  { id: "costume", label: "Costume 2 p.", panierLabel: "Costume 2 pièces", prix: 6000, unite: "piece", icon: "fold", iconBg: "bg-amber-50 text-amber-700" },
+  { id: "couette", label: "Couette", panierLabel: "Couette 2 places", prix: 4500, unite: "kilo", icon: "box", iconBg: "bg-amber-50 text-amber-600" },
+  { id: "linge", label: "Linge au kilo", panierLabel: "Linge courant", prix: 2000, unite: "kilo", icon: "bag", iconBg: "bg-slate-100 text-slate-500" },
 ];
 
 const DEFAUTS = ["Taché", "Troué", "Déchiré", "Décoloré", "Bouton cassé", "Autre"];
@@ -182,7 +167,7 @@ export default function NouveauDepotPage() {
       {/* Bandeau hors ligne */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-100">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100">
-          <WifiOff className="size-4 text-amber-600" />
+          <AppIcon name="wifi" className="size-4 text-amber-600" />
         </span>
         <div className="min-w-0 flex-1 text-xs">
           <p className="font-bold text-amber-800">Mode hors ligne — le réseau est indisponible</p>
@@ -195,7 +180,7 @@ export default function NouveauDepotPage() {
           className="gap-1.5 border-amber-200 bg-white text-xs font-bold"
           onClick={() => toast.info("Toujours hors ligne", { description: "La file sera envoyée dès le retour du réseau." })}
         >
-          <RefreshCw className="size-3.5" />
+          <AppIcon name="refresh" className="size-3.5" />
           Réessayer
         </Button>
       </div>
@@ -209,7 +194,7 @@ export default function NouveauDepotPage() {
           onClick={() => router.back()}
           className="mt-1 bg-primary text-white hover:bg-primary/90 hover:text-white"
         >
-          <ArrowLeft className="size-4" />
+          <AppIcon name="back" className="size-4" />
         </Button>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">Nouveau dépôt</h1>
@@ -261,7 +246,7 @@ export default function NouveauDepotPage() {
               Rechercher
             </Label>
             <div className="relative">
-              <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <AppIcon name="search" className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="nc-search"
                 value={clientSearch}
@@ -320,7 +305,7 @@ export default function NouveauDepotPage() {
                   En cache
                 </Badge>
                 <Button variant="ghost" size="icon-sm" aria-label="Changer de client" onClick={() => setClient(null)}>
-                  <X className="size-4" />
+                  <AppIcon name="close" className="size-4" />
                 </Button>
               </div>
             )}
@@ -346,7 +331,7 @@ export default function NouveauDepotPage() {
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <div className="relative min-w-0 flex-1">
-                <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                <AppIcon name="search" className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={catalogSearch}
                   onChange={(e) => setCatalogSearch(e.target.value)}
@@ -386,7 +371,7 @@ export default function NouveauDepotPage() {
                         </span>
                       )}
                       <span className={cn("flex size-9 items-center justify-center rounded-lg", p.iconBg)}>
-                        <p.icon className="size-4" />
+                        <AppIcon name={p.icon} className="size-4" />
                       </span>
                       <p className="mt-2 text-[13px] font-semibold">{p.label}</p>
                       <p className="text-xs font-bold">
@@ -405,7 +390,7 @@ export default function NouveauDepotPage() {
                             onClick={() => bump(p.id, p.unite === "kilo" ? -0.1 : -1, p.unite === "kilo")}
                             className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
                           >
-                            <Minus className="size-3" />
+                            <AppIcon name="minus" className="size-3" />
                           </button>
                           <span className="min-w-6 text-center text-xs font-bold">{p.unite === "kilo" ? fmtQte(q) : q}</span>
                           <button
@@ -414,7 +399,7 @@ export default function NouveauDepotPage() {
                             onClick={() => bump(p.id, p.unite === "kilo" ? 0.1 : 1, p.unite === "kilo")}
                             className="flex size-6 items-center justify-center rounded-r-md bg-primary text-[11px] font-bold text-white"
                           >
-                            <Plus className="size-3" />
+                            <AppIcon name="plus" className="size-3" />
                           </button>
                         </div>
                       </div>
@@ -470,7 +455,7 @@ export default function NouveauDepotPage() {
                     onClick={() => setPoids(-0.1)}
                     className="flex w-9 items-center justify-center text-muted-foreground hover:text-foreground"
                   >
-                    <Minus className="size-3.5" />
+                    <AppIcon name="minus" className="size-3.5" />
                   </button>
                   <span className="flex-1 py-2 text-center text-[13px] font-bold">{fmtQte(poids)} kg</span>
                   <button
@@ -479,7 +464,7 @@ export default function NouveauDepotPage() {
                     onClick={() => setPoids(0.1)}
                     className="flex w-9 items-center justify-center bg-primary text-white"
                   >
-                    <Plus className="size-3.5" />
+                    <AppIcon name="plus" className="size-3.5" />
                   </button>
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">Visible uniquement pour un service au kilo</p>
@@ -526,7 +511,7 @@ export default function NouveauDepotPage() {
             <p className="mt-1 text-[11px] text-muted-foreground">Tarif ×2 selon la politique du pressing • Délai express : 24 h</p>
 
             <Button size="lg" className="mt-3 w-full justify-center gap-1.5 text-xs font-bold" onClick={handleAddPanier}>
-              <Plus className="size-4" />
+              <AppIcon name="plus" className="size-4" />
               Ajouter au panier
             </Button>
           </section>
@@ -564,7 +549,7 @@ export default function NouveauDepotPage() {
                           onClick={() => bump(l.id, l.unite === "kilo" ? -0.1 : -1, l.unite === "kilo")}
                           className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
                         >
-                          <Minus className="size-3" />
+                          <AppIcon name="minus" className="size-3" />
                         </button>
                         <span className="min-w-6 text-center text-xs font-bold">{l.unite === "kilo" ? fmtQte(l.qte) : l.qte}</span>
                         <button
@@ -573,7 +558,7 @@ export default function NouveauDepotPage() {
                           onClick={() => bump(l.id, l.unite === "kilo" ? 0.1 : 1, l.unite === "kilo")}
                           className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
                         >
-                          <Plus className="size-3" />
+                          <AppIcon name="plus" className="size-3" />
                         </button>
                       </div>
                       <span className="w-16 text-right text-xs font-bold">{formatFCFA(l.total)} F</span>
@@ -690,7 +675,7 @@ export default function NouveauDepotPage() {
               <span className="text-[13px] font-extrabold">{formatFCFA(reste)} FCFA</span>
             </p>
             <Button size="lg" className="mt-3 w-full justify-center gap-1.5 text-xs font-bold" onClick={handleSave}>
-              <Printer className="size-4" />
+              <AppIcon name="print" className="size-4" />
               Enregistrer et imprimer
             </Button>
             <p className="mt-2 rounded-lg bg-slate-100 p-2.5 text-[11px] leading-snug text-muted-foreground">

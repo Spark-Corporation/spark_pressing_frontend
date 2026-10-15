@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -39,6 +39,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AGENCES, CLIENTS, FIDELITE_TOTAUX, type Client, type FideliteGroupe } from "./data";
+import { handleApiAction } from "@/functions/handleResponseApi";
+import { getClientsAction } from "@/actions/AdminAction";
+import { useAuth } from "@/contexts/AuthContext";
 
 const PAGE_SIZE = 8;
 type Periode = "jour" | "semaine" | "mois";
@@ -81,6 +84,7 @@ function StatutBadge({ statut }: { statut: Client["statut"] }) {
 
 export default function ClientsPage() {
   const { updatePath } = useGlobalData();
+  const { setLoading, logout } = useAuth();
   const [search, setSearch] = useState("");
   const [periode, setPeriode] = useState<Periode>("mois");
   const [fidelite, setFidelite] = useState<FideliteGroupe | "Tous">("Tous");
@@ -107,6 +111,15 @@ export default function ClientsPage() {
   const rows = filtered.slice(start, start + PAGE_SIZE);
 
   const resetPage = () => setPage(1);
+
+  useEffect(() => {
+    handleApiAction({
+      action: getClientsAction,
+      setLoading,
+      logout,
+      onSuccess: (res) => console.log("Clients fetched:", res),
+    });
+  }, []);
 
   return (
     <div className="space-y-5">

@@ -3,8 +3,6 @@
 import { useGlobalData } from "@/contexts/GlobalContext";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
-import { X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 export default function DashboardLayout({
   children,

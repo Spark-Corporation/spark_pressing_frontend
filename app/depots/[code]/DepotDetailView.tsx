@@ -1,21 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Archive,
-  ArrowLeft,
-  Check,
-  Clock,
-  Info,
-  Package,
-  Pencil,
-  Plus,
-  Printer,
-  ReceiptText,
-  RefreshCw,
-  Shirt,
-  Wallet,
-} from "lucide-react";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -126,7 +112,7 @@ export default function DepotDetailView({ depot, detail }: { depot: Depot; detai
       <DialogTrigger
         render={
           <Button size="lg" className="gap-1.5 px-3 text-xs font-bold">
-            <Plus className="size-4" />
+            <AppIcon name="plus" className="size-4" />
             Ajouter un acompte
           </Button>
         }
@@ -193,7 +179,7 @@ export default function DepotDetailView({ depot, detail }: { depot: Depot; detai
           onClick={() => router.back()}
           className="mt-1 bg-primary text-white hover:bg-primary/90 hover:text-white"
         >
-          <ArrowLeft className="size-4" />
+          <AppIcon name="back" className="size-4" />
         </Button>
         <div className="min-w-0 flex-1">
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-extrabold tracking-tight sm:text-2xl">
@@ -224,14 +210,14 @@ export default function DepotDetailView({ depot, detail }: { depot: Depot; detai
             className="gap-1.5 px-3 text-xs font-bold"
             onClick={() => updatePath(`/depots/${depot.code}/ticket`)}
           >
-            <Printer className="size-3.5" />
+            <AppIcon name="print" className="size-3.5" />
             Imprimer
           </Button>
           <Dialog open={editOpen} onOpenChange={setEditOpen}>
             <DialogTrigger
               render={
                 <Button variant="outline" size="lg" className="gap-1.5 px-3 text-xs font-bold">
-                  <Pencil className="size-3.5" />
+                  <AppIcon name="edit" className="size-3.5" />
                   Modifier
                 </Button>
               }
@@ -272,16 +258,16 @@ export default function DepotDetailView({ depot, detail }: { depot: Depot; detai
       {/* Statuts */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Statut commercial", value: statut, sub: detail.statutDetail, icon: ReceiptText, iconBg: "bg-slate-100 text-slate-500", valueClass: "" },
-          { label: "État atelier", value: depot.etat, sub: detail.etatDetail, icon: Shirt, iconBg: "bg-slate-100 text-slate-500", valueClass: "" },
-          { label: "Synchronisation", value: detail.synchro, sub: detail.synchroDetail, icon: RefreshCw, iconBg: "bg-slate-100 text-slate-500", valueClass: "" },
-          { label: "Reste à payer", value: `${formatFCFA(reste)} FCFA`, sub: paye > 0 ? `Acompte de ${formatFCFA(paye)} FCFA` : "Aucun acompte versé", icon: Wallet, iconBg: "bg-amber-50 text-amber-600", valueClass: reste > 0 ? "text-amber-600" : "" },
+          { label: "Statut commercial", value: statut, sub: detail.statutDetail, icon: "receipt", iconBg: "bg-slate-100 text-slate-500", valueClass: "" },
+          { label: "État atelier", value: depot.etat, sub: detail.etatDetail, icon: "shirt", iconBg: "bg-slate-100 text-slate-500", valueClass: "" },
+          { label: "Synchronisation", value: detail.synchro, sub: detail.synchroDetail, icon: "refresh", iconBg: "bg-slate-100 text-slate-500", valueClass: "" },
+          { label: "Reste à payer", value: `${formatFCFA(reste)} FCFA`, sub: paye > 0 ? `Acompte de ${formatFCFA(paye)} FCFA` : "Aucun acompte versé", icon: "wallet", iconBg: "bg-amber-50 text-amber-600", valueClass: reste > 0 ? "text-amber-600" : "" },
         ].map((k) => (
           <div key={k.label} className="rounded-xl border border-border bg-white p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">{k.label}</p>
               <span className={cn("flex size-8 items-center justify-center rounded-lg", k.iconBg)}>
-                <k.icon className="size-4" />
+                <AppIcon name={k.icon as AppIconName} className="size-4" />
               </span>
             </div>
             <p className={cn("mt-2 text-xl font-extrabold tracking-tight", k.valueClass)}>{k.value}</p>
@@ -495,22 +481,22 @@ export default function DepotDetailView({ depot, detail }: { depot: Depot; detai
             <p className="mt-0.5 text-[11px] text-muted-foreground">Selon vos permissions d&apos;agence</p>
             <div className="mt-3 space-y-2">
               <Button variant="outline" size="lg" className="w-full justify-start gap-2 text-xs font-bold" onClick={() => updatePath(`/depots/${depot.code}/ticket`)}>
-                <Printer className="size-4" />
+                <AppIcon name="print" className="size-4" />
                 Imprimer le ticket
               </Button>
               <Button variant="outline" size="lg" className="w-full justify-start gap-2 text-xs font-bold" onClick={() => setEditOpen(true)}>
-                <Pencil className="size-4" />
+                <AppIcon name="edit" className="size-4" />
                 Modifier le dépôt
               </Button>
               <Button variant="outline" size="lg" className="w-full justify-start gap-2 text-xs font-bold" onClick={() => toast.info("Atelier", { description: `Suivi du lot ${depot.code}.` })}>
-                <Package className="size-4" />
+                <AppIcon name="box" className="size-4" />
                 Suivre l&apos;atelier
               </Button>
               <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
                 <AlertDialogTrigger
                   render={
                     <Button variant="outline" size="lg" className="w-full justify-start gap-2 border-red-200 bg-red-50 text-xs font-bold text-red-600 hover:bg-red-100 hover:text-red-700">
-                      <Archive className="size-4" />
+                      <AppIcon name="box" className="size-4" />
                       Annuler le dépôt
                     </Button>
                   }
@@ -540,7 +526,7 @@ export default function DepotDetailView({ depot, detail }: { depot: Depot; detai
               </AlertDialog>
             </div>
             <p className="mt-3 flex gap-1.5 text-[11px] leading-snug text-muted-foreground">
-              <Info className="size-3.5 shrink-0" />
+              <AppIcon name="info" className="size-3.5" />
               La modification reste disponible jusqu&apos;au retrait. Toute annulation est journalisée.
             </p>
           </div>
@@ -549,10 +535,10 @@ export default function DepotDetailView({ depot, detail }: { depot: Depot; detai
 
       {/* Bandeau bas mobile */}
       <div className="flex items-center gap-2 rounded-xl border border-border bg-white p-3 text-xs text-muted-foreground xl:hidden">
-        <Clock className="size-4 shrink-0 text-emerald-600" />
+        <AppIcon name="clock" className="size-4 text-emerald-600" />
         {depot.etat} • Reste {formatFCFA(reste)} FCFA
         <span className="ml-auto inline-flex items-center gap-1 font-semibold text-foreground">
-          <Check className="size-3.5" /> {depot.synchro}
+          <AppIcon name="check" className="size-3.5" /> {depot.synchro}
         </span>
       </div>
     </div>

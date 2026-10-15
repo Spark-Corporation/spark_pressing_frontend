@@ -1,32 +1,7 @@
 "use client";
 
-import {
-  ArrowDownRight,
-  ArrowUpRight,
-  BadgeCheck,
-  Banknote,
-  Bell,
-  CalendarDays,
-  CheckCircle2,
-  Clock3,
-  Download,
-  Eye,
-  FileWarning,
-  Flame,
-  Heart,
-  Inbox,
-  Layers,
-  Plus,
-  ReceiptText,
-  RefreshCw,
-  ScanSearch,
-  Shirt,
-  Sparkles,
-  SprayCan,
-  CircleCheck,
-  Wallet,
-  WashingMachine,
-} from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useGlobalData } from "@/contexts/GlobalContext";
@@ -40,7 +15,7 @@ const kpis = [
     badge: "+12,4 %",
     badgeClass: "bg-emerald-50 text-emerald-700",
     sub: "vs. même jour sem. dernière",
-    icon: Banknote,
+    icon: "cash",
     iconBg: "bg-stone-100 text-stone-500",
   },
   {
@@ -49,7 +24,7 @@ const kpis = [
     badge: "+6,5 %",
     badgeClass: "bg-amber-50 text-amber-700",
     sub: "418 pièces réceptionnées",
-    icon: Inbox,
+    icon: "box",
     iconBg: "bg-slate-100 text-slate-500",
   },
   {
@@ -58,7 +33,7 @@ const kpis = [
     badge: "74,6 %",
     badgeClass: "bg-amber-50 text-amber-700",
     sub: "9 commandes à notifier",
-    icon: ReceiptText,
+    icon: "receipt",
     iconBg: "bg-stone-100 text-stone-500",
   },
   {
@@ -67,7 +42,7 @@ const kpis = [
     badge: "+5,1 %",
     badgeClass: "bg-emerald-50 text-emerald-700",
     sub: "23 nouveaux ce mois",
-    icon: Heart,
+    icon: "heart",
     iconBg: "bg-stone-100 text-stone-500",
   },
 ];
@@ -80,16 +55,16 @@ const agences = [
 ];
 
 const pipeline = [
-  { label: "À trier", count: 14, pieces: "46 pièces", icon: Layers, bg: "bg-slate-100" },
-  { label: "Lavage", count: 22, pieces: "78 pièces", icon: WashingMachine, bg: "bg-sky-50" },
-  { label: "Repassage", count: 18, pieces: "61 pièces", icon: Flame, bg: "bg-amber-50" },
-  { label: "Contrôle", count: 9, pieces: "31 pièces", icon: ScanSearch, bg: "bg-orange-50" },
-  { label: "Prêt", count: 35, pieces: "104 pièces", icon: CircleCheck, bg: "bg-emerald-50" },
+  { label: "À trier", count: 14, pieces: "46 pièces", icon: "task", bg: "bg-slate-100" },
+  { label: "Lavage", count: 22, pieces: "78 pièces", icon: "washing-machine", bg: "bg-sky-50" },
+  { label: "Repassage", count: 18, pieces: "61 pièces", icon: "iron", bg: "bg-amber-50" },
+  { label: "Contrôle", count: 9, pieces: "31 pièces", icon: "quality", bg: "bg-orange-50" },
+  { label: "Prêt", count: 35, pieces: "104 pièces", icon: "check-circle", bg: "bg-emerald-50" },
 ];
 
 const activites = [
   {
-    icon: Inbox,
+    icon: "box",
     iconBg: "bg-sky-50 text-sky-600",
     title: "Dépôt enregistré · BG-02621",
     sub: "Mariam Traoré · 7 pièces · Express",
@@ -98,7 +73,7 @@ const activites = [
     amountClass: "text-foreground",
   },
   {
-    icon: Shirt,
+    icon: "shirt",
     iconBg: "bg-stone-100 text-stone-600",
     title: "Retrait finalisé · BO-02588",
     sub: "Koffi N'Guessan · paiement Mobile Money",
@@ -107,7 +82,7 @@ const activites = [
     amountClass: "text-foreground",
   },
   {
-    icon: ScanSearch,
+    icon: "quality",
     iconBg: "bg-amber-50 text-amber-600",
     title: "Commande passée au contrôle",
     sub: "BO-02602 · 4 costumes · Opératrice : Grâce",
@@ -116,7 +91,7 @@ const activites = [
     amountClass: "text-amber-600",
   },
   {
-    icon: ReceiptText,
+    icon: "receipt",
     iconBg: "bg-red-50 text-red-500",
     title: "Dépense de caisse validée",
     sub: "Produits détachants · Fournisseur CleanPro",
@@ -125,7 +100,7 @@ const activites = [
     amountClass: "text-red-500",
   },
   {
-    icon: Sparkles,
+    icon: "star",
     iconBg: "bg-violet-50 text-violet-600",
     title: "Nouveau membre fidélité",
     sub: "Fatou Diabaté · niveau Signature",
@@ -135,8 +110,8 @@ const activites = [
   },
 ];
 
-/* --------------------------------- Graphique ------------------------------- */
 
+/* --------------------------------- Graphique ------------------------------- */
 function RevenueChart() {
   // Courbe lissée (7 points Lun 21 → Dim 27)
   const path =
@@ -197,15 +172,15 @@ export default function DashboardPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="lg" className="gap-1.5 px-3 text-xs font-semibold">
-            <CalendarDays className="size-3.5 text-muted-foreground" />
+            <AppIcon name="calendar" className="size-3.5 text-muted-foreground" />
             Aujourd&apos;hui
           </Button>
           <Button variant="outline" size="lg" className="gap-1.5 px-3 text-xs font-semibold">
-            <Download className="size-3.5 text-muted-foreground" />
+            <AppIcon name="download" className="size-3.5 text-muted-foreground" />
             Exporter
           </Button>
           <Button size="lg" className="gap-1.5 px-3 text-xs font-bold" onClick={() => updatePath("/depots/nouveau")}>
-            <Plus className="size-4" />
+            <AppIcon name="plus" className="size-4" />
             Nouveau dépôt
           </Button>
         </div>
@@ -218,7 +193,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">{k.label}</p>
               <span className={cn("flex size-8 items-center justify-center rounded-lg", k.iconBg)}>
-                <k.icon className="size-4" />
+                <AppIcon name={k.icon as AppIconName} className="size-4" />
               </span>
             </div>
             <p className="mt-2 text-xl font-extrabold tracking-tight">{k.value}</p>
@@ -298,7 +273,7 @@ export default function DashboardPage() {
             {pipeline.map((s) => (
               <div key={s.label} className={cn("rounded-xl p-3", s.bg)}>
                 <div className="flex items-center justify-between">
-                  <s.icon className="size-4 text-muted-foreground" />
+                  <AppIcon name={s.icon as AppIconName} className="size-4 text-muted-foreground" />
                   <span className="text-lg font-extrabold">{s.count}</span>
                 </div>
                 <p className="mt-2 text-xs font-bold">{s.label}</p>
@@ -307,7 +282,7 @@ export default function DashboardPage() {
             ))}
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-xs ring-1 ring-amber-100">
-            <Clock3 className="size-4 shrink-0 text-amber-600" />
+            <AppIcon name="clock" className="size-4 text-amber-600" />
             <p className="flex-1 text-amber-900">
               <span className="font-bold">8 commandes approchent leur délai promis</span>
               <br />
@@ -421,7 +396,7 @@ export default function DashboardPage() {
             {activites.map((a, i) => (
               <div key={i} className="flex items-center gap-3 py-3">
                 <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", a.iconBg)}>
-                  <a.icon className="size-4" />
+                  <AppIcon name={a.icon as AppIconName} className="size-4" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-semibold">{a.title}</p>
@@ -442,7 +417,7 @@ export default function DashboardPage() {
 
           <div className="mt-4 flex items-center gap-3 rounded-xl bg-stone-50 p-3 ring-1 ring-border/60">
             <span className="flex size-10 items-center justify-center rounded-full bg-white shadow-sm">
-              <Wallet className="size-5 text-muted-foreground" />
+              <AppIcon name="wallet" className="size-5 text-muted-foreground" />
             </span>
             <div>
               <p className="flex items-center gap-1.5 text-[13px] font-bold text-emerald-700">
@@ -455,13 +430,13 @@ export default function DashboardPage() {
           <div className="mt-4 flex items-center justify-between">
             <p className="text-xs font-bold">Opérations en attente</p>
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600">
-              <FileWarning className="size-3.5" /> 4 à envoyer
+              <AppIcon name="alert" className="size-3.5" /> 4 à envoyer
             </span>
           </div>
 
           <div className="mt-3 space-y-2.5 text-xs">
             <div className="flex items-center gap-2.5 rounded-lg border border-border p-2.5">
-              <Banknote className="size-4 shrink-0 text-muted-foreground" />
+              <AppIcon name="cash" className="size-4 text-muted-foreground" />
               <div className="flex-1">
                 <p className="font-bold">2 dépôts</p>
                 <p className="text-muted-foreground">BG-02619, BG-02620</p>
@@ -469,14 +444,14 @@ export default function DashboardPage() {
               <span className="text-[11px] text-muted-foreground">il y a 16 min</span>
             </div>
             <div className="flex items-center gap-2.5 rounded-lg border border-border p-2.5">
-              <BadgeCheck className="size-4 shrink-0 text-muted-foreground" />
+              <AppIcon name="check-circle" className="size-4 text-muted-foreground" />
               <div className="flex-1">
                 <p className="font-bold">1 encaissement</p>
                 <p className="text-muted-foreground">18 500 · Orange Money</p>
               </div>
             </div>
             <div className="flex items-center gap-2.5 rounded-lg border border-border p-2.5">
-              <Bell className="size-4 shrink-0 text-muted-foreground" />
+              <AppIcon name="notification" className="size-4 text-muted-foreground" />
               <div className="flex-1">
                 <p className="font-bold">1 mise à jour client</p>
                 <p className="text-muted-foreground">Téléphone et consentement SMS</p>
@@ -489,7 +464,7 @@ export default function DashboardPage() {
             Envoi automatique dès que la connexion est stable.
           </p>
           <Button variant="outline" size="lg" className="mt-2 w-full gap-1.5 text-xs font-bold sm:w-auto sm:px-4">
-            <RefreshCw className="size-3.5" />
+            <AppIcon name="refresh" className="size-3.5" />
             Synchroniser
           </Button>
         </div>
@@ -497,22 +472,12 @@ export default function DashboardPage() {
 
       {/* Bandeau bas mobile : rappels */}
       <div className="flex items-center gap-2 rounded-xl border border-border bg-white p-3 text-xs text-muted-foreground xl:hidden">
-        <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+        <AppIcon name="check-circle" className="size-4 text-emerald-600" />
         Données à jour · 4 agences synchronisées il y a 2 min
         <span className="ml-auto inline-flex items-center gap-1 font-semibold text-foreground">
-          <Eye className="size-3.5" /> Réseau
+          <AppIcon name="eye" className="size-3.5" /> Réseau
         </span>
       </div>
     </div>
   );
 }
-
-// Exports inutilisés volontairement gardés pour usages futurs (évite les imports morts)
-export const __dashboardIcons = {
-  ArrowDownRight,
-  ArrowUpRight,
-  Clock3,
-  Wallet,
-  Layers,
-  SprayCan,
-};

@@ -1,30 +1,15 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import {
-  ArrowLeftRight,
-  BarChart3,
-  Building2,
-  ChevronsUpDown,
-  ClipboardList,
-  LayoutDashboard,
-  LogOut,
-  Package,
-  RefreshCw,
-  ScrollText,
-  Settings,
-  Shirt,
-  Tags,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { ChevronsUpDown } from "lucide-react";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useGlobalData } from "@/contexts/GlobalContext";
 import { useAuth } from "@/contexts/AuthContext";
 
 export interface NavItem {
-  icon: React.ElementType;
+  icon: AppIconName;
   label: string;
   path: string;
   exact?: boolean;
@@ -39,29 +24,29 @@ export const navSections: NavSection[] = [
   {
     title: "Opérations",
     items: [
-      { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard", exact: true },
-      { icon: Package, label: "Dépôts", path: "/depots" },
-      { icon: Users, label: "Clients", path: "/clients" },
-      { icon: Shirt, label: "Atelier", path: "/atelier" },
-      { icon: ArrowLeftRight, label: "Retraits", path: "/retraits" },
-      { icon: Wallet, label: "Caisse", path: "/caisse" },
+      { icon: "dashboard", label: "Dashboard", path: "/dashboard", exact: true },
+      { icon: "order", label: "Dépôts", path: "/depots" },
+      { icon: "customers", label: "Clients", path: "/clients" },
+      { icon: "washing-machine", label: "Atelier", path: "/atelier" },
+      { icon: "bag", label: "Retraits", path: "/retraits" },
+      { icon: "cash-register", label: "Caisse", path: "/caisse" },
     ],
   },
   {
     title: "Pilotage",
     items: [
-      { icon: Tags, label: "Articles et tarifs", path: "/articles" },
-      { icon: BarChart3, label: "Rapports", path: "/rapports" },
-      { icon: Building2, label: "Multi-agences", path: "/multi-agences" },
-      { icon: ClipboardList, label: "Équipe & rôles", path: "/equipe" },
+      { icon: "tag", label: "Articles et tarifs", path: "/articles" },
+      { icon: "report", label: "Rapports", path: "/rapports" },
+      { icon: "branch", label: "Multi-agences", path: "/multi-agences" },
+      { icon: "staff", label: "Équipe & rôles", path: "/equipe" },
     ],
   },
   {
     title: "Système",
     items: [
-      { icon: RefreshCw, label: "Synchronisation", path: "/synchronisation" },
-      { icon: Settings, label: "Paramètres", path: "/parametres" },
-      { icon: ScrollText, label: "Audit & logs", path: "/audit" },
+      { icon: "refresh", label: "Synchronisation", path: "/synchronisation" },
+      { icon: "settings", label: "Paramètres", path: "/parametres" },
+      { icon: "database", label: "Audit & logs", path: "/audit" },
     ],
   },
 ];
@@ -141,8 +126,9 @@ export default function Sidebar({ setMobileOpen }: SidebarProps) {
                         : "text-white/65 hover:bg-white/8 hover:text-white",
                     )}
                   >
-                    <item.icon
-                      className={cn("size-[17px] shrink-0", active ? "text-secondary" : "text-white/55")}
+                    <AppIcon
+                      name={item.icon}
+                      className={cn("size-[17px]", active ? "text-secondary" : "text-white/55")}
                       strokeWidth={active ? 2.3 : 1.9}
                     />
                     <span className="flex-1 truncate">{item.label}</span>
@@ -178,7 +164,7 @@ export default function Sidebar({ setMobileOpen }: SidebarProps) {
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12px] font-semibold lowercase">{displayName.toLowerCase()}</p>
           </div>
-          <LogOut className="size-4 shrink-0 text-white/40" />
+          <AppIcon name="logout" className="size-4 text-white/40" />
         </div>
       </div>
     </div>

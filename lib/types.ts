@@ -16,3 +16,59 @@ export interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
 }
+
+/* --------------------------- Backend (staff) ------------------------------ */
+
+export interface Agency {
+  id: number;
+  pressing_id: number;
+  name: string;
+  address: string;
+  contact: string;
+  country_code: string;
+  currency: string;
+  code_prefix: string;
+  code_suffix: string;
+  status: boolean;
+}
+
+export interface Pressing {
+  id: number;
+  name: string;
+  details: string;
+  status: boolean;
+  pricing_mode: string;
+  workflow_laveur_enabled: boolean;
+  workflow_classeur_enabled: boolean;
+  qr_labels_enabled: boolean;
+  block_retrieve_if_unpaid: boolean;
+  reporting_currency: string | null;
+  collection_fee: number;
+  delivery_fee: number;
+  loyalty_points_rate: number;
+  hours_classic: number | null;
+  hours_express: number | null;
+  hours_repass: number | null;
+}
+
+export interface StaffUser {
+  id: number;
+  fullname: string;
+  email: string;
+  phone_number: string | null;
+  pressing_id: number;
+  agency_id: number;
+  status: boolean;
+  roles: string[];
+  agency: Agency;
+  agencies: Agency[];
+  pressing: Pressing;
+  can_view_all_agencies: boolean;
+}
+
+export interface LoginResult {
+  token: string;
+  token_type: string;
+  actor: string;
+  user: StaffUser;
+}

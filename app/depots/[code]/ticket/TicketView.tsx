@@ -1,15 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  ArrowLeft,
-  Download,
-  Minus,
-  Plus,
-  Printer,
-  Send,
-  WifiOff,
-} from "lucide-react";
+import { AppIcon } from "@/components/ui/app-icon";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -124,7 +116,7 @@ export default function TicketView({ depot, detail }: { depot: Depot; detail: De
       <DialogTrigger
         render={
           <Button variant="outline" size="lg" className="gap-1.5 px-3 text-xs font-bold">
-            <Send className="size-3.5" />
+            <AppIcon name="forward" className="size-3.5" />
             Envoyer
           </Button>
         }
@@ -177,7 +169,7 @@ export default function TicketView({ depot, detail }: { depot: Depot; detail: De
           onClick={() => router.back()}
           className="mt-1 bg-primary text-white hover:bg-primary/90 hover:text-white"
         >
-          <ArrowLeft className="size-4" />
+          <AppIcon name="back" className="size-4" />
         </Button>
         <div className="min-w-0 flex-1">
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-extrabold tracking-tight sm:text-2xl">
@@ -192,12 +184,12 @@ export default function TicketView({ depot, detail }: { depot: Depot; detail: De
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="lg" className="gap-1.5 px-3 text-xs font-bold" onClick={handleDownload}>
-            <Download className="size-3.5" />
+            <AppIcon name="download" className="size-3.5" />
             Télécharger PDF
           </Button>
           {sendDialog}
           <Button size="lg" className="gap-1.5 px-3 text-xs font-bold" onClick={handlePrint}>
-            <Printer className="size-4" />
+                <AppIcon name="print" className="size-4" />
             Imprimer
           </Button>
         </div>
@@ -205,7 +197,7 @@ export default function TicketView({ depot, detail }: { depot: Depot; detail: De
 
       {/* Bandeau hors connexion */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-100">
-        <WifiOff className="size-4 shrink-0 text-amber-600" />
+        <AppIcon name="wifi" className="size-4 text-amber-600" />
         <p className="min-w-0 flex-1 text-xs text-amber-800">
           Impression disponible hors connexion • en cas de coupure, le numéro temporaire LOCAL-BGV-0042 sera utilisé puis synchronisé.
         </p>
@@ -399,11 +391,11 @@ export default function TicketView({ depot, detail }: { depot: Depot; detail: De
               <p className="flex justify-between"><span className="text-muted-foreground">Copies</span>
                 <span className="flex items-center gap-1.5">
                   <button type="button" aria-label="Moins de copies" onClick={() => setCopies((c) => Math.max(1, c - 1))} className="flex size-5 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground">
-                    <Minus className="size-3" />
+                    <AppIcon name="minus" className="size-3" />
                   </button>
                   <span className="font-bold">{copies} exemplaire{copies > 1 ? "s" : ""}</span>
                   <button type="button" aria-label="Plus de copies" onClick={() => setCopies((c) => Math.min(5, c + 1))} className="flex size-5 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground">
-                    <Plus className="size-3" />
+                    <AppIcon name="plus" className="size-3" />
                   </button>
                 </span>
               </p>
@@ -416,15 +408,15 @@ export default function TicketView({ depot, detail }: { depot: Depot; detail: De
             <p className="mt-0.5 text-[11px] text-muted-foreground">Ticket {depot.code}</p>
             <div className="mt-3 space-y-2">
               <Button size="lg" className="w-full justify-center gap-1.5 text-xs font-bold" onClick={handlePrint}>
-                <Printer className="size-4" />
+            <AppIcon name="print" className="size-4" />
                 Imprimer maintenant
               </Button>
               <Button variant="outline" size="lg" className="w-full justify-center gap-1.5 text-xs font-bold" onClick={handleDownload}>
-                <Download className="size-4" />
+                <AppIcon name="download" className="size-4" />
                 Télécharger le PDF
               </Button>
               <Button variant="outline" size="lg" className="w-full justify-center gap-1.5 text-xs font-bold" onClick={() => setSendOpen(true)}>
-                <Send className="size-4" />
+                <AppIcon name="forward" className="size-4" />
                 Envoyer au client
               </Button>
             </div>
@@ -438,7 +430,7 @@ export default function TicketView({ depot, detail }: { depot: Depot; detail: De
           <section className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-100">
             <div className="flex items-center gap-2">
               <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
-                <Printer className="size-4 text-amber-600" />
+                <AppIcon name="print" className="size-4 text-amber-600" />
               </span>
               <div>
                 <h2 className="text-[13px] font-bold">Impression hors connexion</h2>

@@ -2,18 +2,11 @@
 
 import { useMemo, useState } from "react";
 import {
-  Banknote,
-  CalendarClock,
   ChevronLeft,
   ChevronRight,
   Columns3,
-  Download,
-  MoreHorizontal,
-  Package,
-  Plus,
-  Search,
-  Wallet,
 } from "lucide-react";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGlobalData } from "@/contexts/GlobalContext";
@@ -60,10 +53,10 @@ const PAGE_SIZE = 6;
 type Periode = "jour" | "semaine" | "mois";
 
 const kpis = [
-  { label: "Dépôts aujourd'hui", value: "28", sub: "+12 % vs samedi dernier", icon: Package, iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Chiffre d'affaires", value: "486 750 FCFA", sub: "389 500 FCFA encaissés", icon: Banknote, iconBg: "bg-amber-50 text-amber-600" },
-  { label: "À retirer aujourd'hui", value: "14", sub: "3 commandes déjà prêtes", icon: CalendarClock, iconBg: "bg-slate-100 text-slate-500" },
-  { label: "Reste à encaisser", value: "97 250 FCFA", sub: "Sur 19 dépôts ouverts", icon: Wallet, iconBg: "bg-amber-50 text-amber-600" },
+  { label: "Dépôts aujourd'hui", value: "28", sub: "+12 % vs samedi dernier", icon: "box", iconBg: "bg-stone-100 text-stone-500" },
+  { label: "Chiffre d'affaires", value: "486 750 FCFA", sub: "389 500 FCFA encaissés", icon: "cash", iconBg: "bg-amber-50 text-amber-600" },
+  { label: "À retirer aujourd'hui", value: "14", sub: "3 commandes déjà prêtes", icon: "calendar", iconBg: "bg-slate-100 text-slate-500" },
+  { label: "Reste à encaisser", value: "97 250 FCFA", sub: "Sur 19 dépôts ouverts", icon: "wallet", iconBg: "bg-amber-50 text-amber-600" },
 ];
 
 const prestationBadge: Record<Prestation, string> = {
@@ -137,7 +130,7 @@ export default function DepotsPage() {
           className="gap-1.5 px-3 text-xs font-bold"
           onClick={() => updatePath("/depots/nouveau")}
         >
-          <Plus className="size-4" />
+          <AppIcon name="plus" className="size-4" />
           Nouveau dépôt
         </Button>
       </div>
@@ -149,7 +142,7 @@ export default function DepotsPage() {
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">{k.label}</p>
               <span className={cn("flex size-8 items-center justify-center rounded-lg", k.iconBg)}>
-                <k.icon className="size-4" />
+                <AppIcon name={k.icon as AppIconName} className="size-4" />
               </span>
             </div>
             <p className="mt-2 text-xl font-extrabold tracking-tight">{k.value}</p>
@@ -164,7 +157,7 @@ export default function DepotsPage() {
           <div>
             <p className="mb-1.5 text-xs font-semibold">Recherche rapide</p>
             <div className="relative">
-              <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <AppIcon name="search" className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Code, client ou téléphone"
                 value={search}
@@ -293,7 +286,7 @@ export default function DepotsPage() {
               className="gap-1.5 text-xs font-semibold"
               onClick={() => toast.success("Export CSV lancé", { description: "Le fichier sera téléchargé dans quelques secondes." })}
             >
-              <Download className="size-3.5" />
+              <AppIcon name="download" className="size-3.5" />
               Exporter
             </Button>
             <DropdownMenu>
@@ -389,7 +382,7 @@ export default function DepotsPage() {
                         <DropdownMenuTrigger
                           render={
                             <Button variant="ghost" size="icon-sm" aria-label={`Actions pour ${d.code}`}>
-                              <MoreHorizontal className="size-4" />
+                              <AppIcon name="more-horizontal" className="size-4" />
                             </Button>
                           }
                         />
