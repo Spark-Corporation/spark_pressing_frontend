@@ -24,6 +24,8 @@ jobs:
 
       - name: Build
         run: NEXT_TURBOPACK=0 npm run build
+        env:
+          API_BACKEND_URL: https://pressing-api.pressingelegance.com/api/v1
 
       - name: Archive build
         run: tar --exclude='./.next/cache' -czf pressing-build.tar.gz .next/ public/
@@ -54,6 +56,7 @@ jobs:
             mkdir -p .next/standalone/.next
             cp -r .next/static .next/standalone/.next/static
             cp -r public .next/standalone/public 2>/dev/null || true
+            echo "API_BACKEND_URL=https://pressing-api.pressingelegance.com/api/v1" > .next/standalone/.env
             cat > server.js << 'SERVEREOF'
             process.env.PORT = 'passenger'
             process.env.HOSTNAME = '127.0.0.1'
