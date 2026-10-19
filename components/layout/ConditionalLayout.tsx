@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useGlobalData } from "@/contexts/GlobalContext";
 import DashboardLayout from "./DashboardLayout";
 
 export const AUTH_ROUTES = [
@@ -16,9 +16,9 @@ export default function ConditionalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
+  const { currentPath } = useGlobalData();
   const isAuthRoute = AUTH_ROUTES.some(
-    (r) => pathname === r || pathname?.startsWith(r + "/"),
+    (r) => currentPath === r || currentPath.startsWith(r + "/"),
   );
 
   if (isAuthRoute) {

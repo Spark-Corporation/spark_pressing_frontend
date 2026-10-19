@@ -38,13 +38,55 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AGENCES, CLIENTS, FIDELITE_TOTAUX, type Client, type FideliteGroupe } from "./data";
+import { AGENCES, FIDELITE_TOTAUX, type Client, type FideliteGroupe, type ClientStatut } from "./data";
 import { handleApiAction } from "@/functions/handleResponseApi";
 import { getClientsAction } from "@/actions/AdminAction";
 import { useAuth } from "@/contexts/AuthContext";
+import { type ApiClient, type ClientsEnvelope } from "@/lib/types";
 
 const PAGE_SIZE = 8;
 type Periode = "jour" | "semaine" | "mois";
+
+function mapClient(client: ApiClient): Client {
+  const fullname = client.fullname || "";
+  const parts = fullname.split(" ");
+  const prenoms = parts[0] || "";
+  const nom = parts.slice(1).join(" ") || "";
+  const initials = ((prenoms.charAt(0) || "") + (nom.charAt(0) || "")).toUpperCase();
+  const date = client.last_deposit_at ? new Date(client.last_deposit_at) : null;
+  const lastDeposit = date
+    ? date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " • " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    : "—";
+  const daysAgo = date ? Math.floor((Date.now() - date.getTime()) / 86400000) : 999;
+  const points = client.loyalty_points || 0;
+  const groupe: FideliteGroupe = points >= 5000 ? "Platine" : points >= 3000 ? "Or" : points >= 1000 ? "Argent" : "Essentiel";
+  const statut: ClientStatut = client.status ? "Actif" : "Inactif";
+  const valeur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "XOF", maximumFractionDigits: 0 }).format(client.wallet_balance || 0);
+  const avatarBg = {
+    Essentiel: "bg-slate-200 text-slate-600",
+    Argent: "bg-slate-200 text-slate-600",
+    Or: "bg-amber-100 text-amber-700",
+    Platine: "bg-sky-100 text-sky-700",
+  }[groupe];
+  return {
+    id: String(client.id),
+    code: client.code,
+    nom,
+    prenoms,
+    fullname,
+    initials,
+    phone: client.phone_number,
+    agency: client.city || "—",
+    lastDeposit,
+    daysAgo,
+    frequence: "—",
+    valeur,
+    points,
+    groupe,
+    statut,
+    avatarBg,
+  };
+}
 
 const kpis = [
   { label: "Clients actifs", value: "2 846", badge: "+8,2 % ce mois", icon: Users, iconBg: "bg-stone-100 text-stone-500" },
@@ -92,18 +134,20 @@ export default function ClientsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [columns, setColumns] = useState({ frequence: true, valeur: true, points: true, groupe: true });
+  const [clients, setClients] = useState<Client[]>([]);
+  const [total, setTotal] = useState(0);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return CLIENTS.filter((c) => {
+    return clients.filter((c) => {
       if (periode === "jour" && c.daysAgo > 2) return false;
       if (periode === "semaine" && c.daysAgo > 7) return false;
       if (fidelite !== "Tous" && c.groupe !== fidelite) return false;
       if (agency !== "Toutes" && c.agency !== agency) return false;
-      if (q && !`${c.prenoms} ${c.nom} ${c.phone} ${c.code}`.toLowerCase().includes(q)) return false;
+      if (q && !`${c.fullname ?? ""} ${c.phone} ${c.code}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [search, periode, fidelite, agency]);
+  }, [search, periode, fidelite, agency, clients]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -117,7 +161,11 @@ export default function ClientsPage() {
       action: getClientsAction,
       setLoading,
       logout,
-      onSuccess: (res) => console.log("Clients fetched:", res),
+      onSuccess: (res) => {
+        const envelope = res as ClientsEnvelope;
+        setClients((envelope.data || []).map(mapClient));
+        setTotal(envelope.meta?.total || 0);
+      },
     });
   }, []);
 
@@ -282,7 +330,7 @@ export default function ClientsPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold">Répertoire clients</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">2 846 clients • synchronisé à 10:38</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{total.toLocaleString("fr-FR")} clients • synchronisé à 10:38</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -351,7 +399,7 @@ export default function ClientsPage() {
                       </span>
                       <span>
                         <span className="block text-[13px] font-semibold">
-                          {c.prenoms} {c.nom}
+                          {c.fullname}
                         </span>
                         <span className="block text-[11px] text-muted-foreground">{c.code}</span>
                       </span>
@@ -377,7 +425,7 @@ export default function ClientsPage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Actions pour ${c.prenoms} ${c.nom}`}>
+                          <Button variant="ghost" size="icon-sm" aria-label={`Actions pour ${c.fullname}`}>
                             <MoreHorizontal className="size-4" />
                           </Button>
                         }
@@ -392,7 +440,7 @@ export default function ClientsPage() {
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           variant="destructive"
-                          onClick={() => toast.info("Archivage", { description: `${c.prenoms} ${c.nom} sera archivé.` })}
+                          onClick={() => toast.info("Archivage", { description: `${c.fullname} sera archivé.` })}
                         >
                           Archiver
                         </DropdownMenuItem>
@@ -415,7 +463,7 @@ export default function ClientsPage() {
         {/* Pagination */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground">
-            {filtered.length === 0 ? "0" : `${start + 1}–${start + rows.length}`} sur 2 846 clients
+            {total === 0 ? "0" : `${start + 1}–${start + rows.length}`} sur {total.toLocaleString("fr-FR")} clients
           </p>
           <div className="flex items-center gap-1">
             <Button

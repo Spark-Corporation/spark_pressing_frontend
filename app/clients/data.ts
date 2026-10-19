@@ -6,6 +6,7 @@ export interface Client {
   code: string;
   nom: string;
   prenoms: string;
+  fullname?: string;
   initials: string;
   phone: string;
   agency: string;

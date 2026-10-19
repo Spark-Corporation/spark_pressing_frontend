@@ -72,3 +72,29 @@ export interface LoginResult {
   actor: string;
   user: StaffUser;
 }
+
+/* --------------------------- Clients (backend) ---------------------------- */
+
+export interface ApiClient {
+  id: number;
+  pressing_id: number;
+  agency_id: number;
+  code: string;
+  fullname: string;
+  email: string;
+  phone_number: string;
+  address: string | null;
+  city: string;
+  loyalty_points: number;
+  wallet_balance: number;
+  sponsor_code: string;
+  referred_by_id: number | null;
+  last_deposit_at: string;
+  status: boolean;
+}
+
+export interface ClientsEnvelope {
+  data: ApiClient[];
+  meta: { page: number; per_page: number; total: number; last_page: number };
+  errors: null;
+}

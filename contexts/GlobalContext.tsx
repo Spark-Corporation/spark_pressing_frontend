@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, Suspense } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
 export interface ProfileUser {
@@ -23,13 +23,20 @@ interface GlobalContextType {
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
 
+function PathnameBridge({ setCurrentPath }: { setCurrentPath: (p: string) => void }) {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (pathname) setCurrentPath(pathname);
+  }, [pathname, setCurrentPath]);
+  return null;
+}
+
 export function GlobalProvider({ children }: { children: React.ReactNode }) {
   const [globalSearch, setGlobalSearch] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileUser, setProfileUser] = useState<ProfileUser | null>(null);
+  const [currentPath, setCurrentPath] = useState("");
   const router = useRouter();
-  const currentPath = usePathname();
-  // const { logout, setLoading } = useAuth();
 
   const updatePath = (path: string) => {
     router.push(path);
@@ -50,6 +57,9 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
         setProfileUser,
       }}
     >
+      <Suspense fallback={null}>
+        <PathnameBridge setCurrentPath={setCurrentPath} />
+      </Suspense>
       {children}
     </GlobalContext.Provider>
   );

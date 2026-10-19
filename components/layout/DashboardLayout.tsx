@@ -2,6 +2,7 @@
 
 import { useGlobalData } from "@/contexts/GlobalContext";
 import Sidebar from "./Sidebar";
+import SuperAdminSidebar from "./SuperAdminSidebar";
 import Header from "./Header";
 
 export default function DashboardLayout({
@@ -9,13 +10,18 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { mobileOpen, setMobileOpen } = useGlobalData();
+  const { mobileOpen, setMobileOpen, currentPath } = useGlobalData();
+  const isSuperAdmin = currentPath.startsWith("/superadmin");
 
   return (
     <div className="flex min-h-screen bg-[#f2f4f2]">
       {/* Sidebar desktop */}
       <div className="fixed inset-y-0 left-0 z-40 hidden w-64 md:block">
-        <Sidebar setMobileOpen={setMobileOpen} />
+        {isSuperAdmin ? (
+          <SuperAdminSidebar setMobileOpen={setMobileOpen} />
+        ) : (
+          <Sidebar setMobileOpen={setMobileOpen} />
+        )}
       </div>
 
       {/* Sidebar mobile (overlay) */}
@@ -26,7 +32,11 @@ export default function DashboardLayout({
             onClick={() => setMobileOpen(false)}
           />
           <div className="absolute inset-y-0 left-0 flex w-64 flex-col bg-sidebar shadow-xl">
-            <Sidebar setMobileOpen={setMobileOpen} />
+            {isSuperAdmin ? (
+              <SuperAdminSidebar setMobileOpen={setMobileOpen} />
+            ) : (
+              <Sidebar setMobileOpen={setMobileOpen} />
+            )}
           </div>
         </div>
       )}

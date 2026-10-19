@@ -51,8 +51,19 @@ function pageTitle(path: string | null): string {
     "/parametres/hors-ligne": "Paramètres / Mode hors ligne",
     "/parametres/audit": "Paramètres / Audit & conservation",
     "/audit": "Audit & logs",
+    "/superadmin": "Superadmin / Vue plateforme",
+    "/superadmin/pressings": "Superadmin / Pressings",
+    "/superadmin/agences": "Superadmin / Agences",
+    "/superadmin/licences": "Superadmin / Licences",
+    "/superadmin/incidents": "Superadmin / Incidents",
+    "/superadmin/utilisateurs": "Superadmin / Utilisateurs",
+    "/superadmin/audit": "Superadmin / Audit global",
+    "/superadmin/synchronisation": "Superadmin / Synchronisation",
+    "/superadmin/configuration": "Superadmin / Configuration",
   };
   if (map[path]) return map[path];
+  if (path.startsWith("/superadmin/pressings/")) return "Superadmin / Pressings / Détail";
+  if (path.startsWith("/superadmin/licences/")) return "Superadmin / Licences / Détail";
   const first = "/" + (path.split("/")[1] ?? "");
   return map[first] ?? "Dashboard";
 }

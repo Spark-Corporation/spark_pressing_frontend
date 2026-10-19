@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import Cookies from "js-cookie";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AuthState, User } from "@/lib/types";
 import { AUTH_ROUTES } from "@/components/layout/ConditionalLayout";
 
@@ -28,6 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const token = Cookies.get("token");
     const userCookie = Cookies.get("user");
+    // console.log("userCookie =", userCookie);
     if (!token || !userCookie) return empty;
 
     try {
@@ -45,15 +46,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     if (auth.isAuthenticated) return;
+    const path = window.location.pathname;
     const isAuthRoute = AUTH_ROUTES.some(
-      (r) => pathname === r || pathname?.startsWith(r + "/"),
+      (r) => path === r || path.startsWith(r + "/"),
     );
     if (!isAuthRoute) router.push("/login");
-  }, [auth.isAuthenticated, pathname, router]);
+  }, [auth.isAuthenticated, router]);
 
   const login = (token: string, user?: User) => {
     Cookies.set("token", token, {
