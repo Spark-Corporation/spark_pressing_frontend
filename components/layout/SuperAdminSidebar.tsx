@@ -61,16 +61,16 @@ export default function SuperAdminSidebar({ setMobileOpen }: SuperAdminSidebarPr
 
   const displayName = mounted
     ? currentUser
-      ? `${currentUser.firstName ?? ""} ${currentUser.lastName ?? ""}`.trim() || "Awa Koné"
-      : "Awa Koné"
-    : "Awa Koné";
+      ? `${currentUser.firstName ?? ""} ${currentUser.lastName ?? ""}`.trim() || "Utilisateur"
+      : "Utilisateur"
+    : "Utilisateur";
   const initials =
     displayName
       .split(" ")
       .map((p) => p[0])
       .join("")
       .slice(0, 2)
-      .toUpperCase() || "AK";
+      .toUpperCase() || "U";
 
   return (
     <div className="flex h-full flex-col bg-primary text-white">

@@ -1,15 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   Columns3,
 } from "lucide-react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { getDepositsAction } from "@/actions/AdminAction";
+import { handleApiAction } from "@/functions/handleResponseApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +42,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  AGENCES_DEPOT,
   DEPOTS,
   ETATS_ATELIER,
   formatFCFA,
@@ -48,16 +51,10 @@ import {
   type Prestation,
   type StatutCommercial,
 } from "./data";
+import type { ApiDeposit, DepositsEnvelope } from "@/lib/types";
 
 const PAGE_SIZE = 6;
 type Periode = "jour" | "semaine" | "mois";
-
-const kpis = [
-  { label: "Dépôts aujourd'hui", value: "28", sub: "+12 % vs samedi dernier", icon: "box", iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Chiffre d'affaires", value: "486 750 FCFA", sub: "389 500 FCFA encaissés", icon: "cash", iconBg: "bg-amber-50 text-amber-600" },
-  { label: "À retirer aujourd'hui", value: "14", sub: "3 commandes déjà prêtes", icon: "calendar", iconBg: "bg-slate-100 text-slate-500" },
-  { label: "Reste à encaisser", value: "97 250 FCFA", sub: "Sur 19 dépôts ouverts", icon: "wallet", iconBg: "bg-amber-50 text-amber-600" },
-];
 
 const prestationBadge: Record<Prestation, string> = {
   Express: "bg-amber-100 text-amber-700",
@@ -65,7 +62,7 @@ const prestationBadge: Record<Prestation, string> = {
   Repassage: "bg-sky-100 text-sky-700",
 };
 
-const etatDot: Record<EtatAtelier, string> = {
+const etatDot: Record<string, string> = {
   Prêt: "bg-emerald-500",
   "En lavage": "bg-sky-500",
   "À trier": "bg-amber-500",
@@ -75,19 +72,74 @@ const etatDot: Record<EtatAtelier, string> = {
   Retiré: "bg-muted-foreground/50",
 };
 
+function mapDeposit(d: ApiDeposit): Depot {
+  const depositDate = d.deposit_date ? new Date(d.deposit_date) : null;
+  const daysAgo = depositDate ? Math.floor((Date.now() - depositDate.getTime()) / 86400000) : 999;
+  const retrieveDate = d.retrieve_date ? new Date(d.retrieve_date) : null;
+  const retrait = d.retrieved_at
+    ? `Retiré ${new Date(d.retrieved_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`
+    : retrieveDate
+      ? `${retrieveDate.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}, ${retrieveDate.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`
+      : "—";
+  const etat = (d.etat_label || "À trier") as EtatAtelier;
+  const prestation: Prestation = d.payment_method === "express" ? "Express" : "Classique";
+  return {
+    code: d.code,
+    client: d.client_name || "—",
+    phone: d.client_phone ?? undefined,
+    prestation,
+    articles: d.articles_label || "—",
+    total: d.total,
+    paye: d.advanced,
+    retrait,
+    etat,
+    synchro: "À jour",
+    daysAgo,
+    agency: d.agency?.name ?? "—",
+  };
+}
+
 export default function DepotsPage() {
   const { updatePath } = useGlobalData();
+  const { setLoading, logout } = useAuth();
   const [search, setSearch] = useState("");
   const [periode, setPeriode] = useState<Periode>("mois");
   const [statut, setStatut] = useState<"Tous" | StatutCommercial>("Tous");
   const [etat, setEtat] = useState<"Tous" | EtatAtelier>("Tous");
-  const [agency, setAgency] = useState("Bingerville");
+  const [agency, setAgency] = useState("Toutes");
   const [page, setPage] = useState(1);
   const [columns, setColumns] = useState({ prestation: true, articles: true, paye: true, reste: true });
+  const [depots, setDepots] = useState<Depot[]>([]);
+  const [loading, setLoadingPage] = useState(true);
+
+  useEffect(() => {
+    handleApiAction({
+      action: getDepositsAction,
+      setLoading,
+      logout,
+      onSuccess: (res) => {
+        const envelope = res as DepositsEnvelope;
+        if (envelope?.data) {
+          setDepots(envelope.data.map(mapDeposit));
+        }
+        setLoadingPage(false);
+      },
+      onError: () => {
+        setDepots(DEPOTS);
+        setLoadingPage(false);
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const agencies = useMemo(() => {
+    const set = new Set(depots.map((d) => d.agency).filter(Boolean));
+    return Array.from(set);
+  }, [depots]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return DEPOTS.filter((d) => {
+    return depots.filter((d) => {
       if (periode === "jour" && d.daysAgo > 1) return false;
       if (periode === "semaine" && d.daysAgo > 7) return false;
       if (statut !== "Tous" && statutCommercial(d) !== statut) return false;
@@ -96,13 +148,28 @@ export default function DepotsPage() {
       if (q && !`${d.code} ${d.client} ${d.phone ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [search, periode, statut, etat, agency]);
+  }, [search, periode, statut, etat, agency, depots]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * PAGE_SIZE;
   const rows = filtered.slice(start, start + PAGE_SIZE);
   const resetPage = () => setPage(1);
+
+  const kpis = useMemo(() => {
+    const today = depots.filter((d) => d.daysAgo <= 1);
+    const revenue = today.reduce((s, d) => s + d.total, 0);
+    const paid = today.reduce((s, d) => s + d.paye, 0);
+    const toRetrieve = depots.filter((d) => d.etat === "Prêt").length;
+    const rest = depots.reduce((s, d) => s + Math.max(0, d.total - d.paye), 0);
+    const openCount = depots.filter((d) => d.total - d.paye > 0).length;
+    return [
+      { label: "Dépôts aujourd'hui", value: String(today.length), sub: `${depots.length} dépôts au total`, icon: "box", iconBg: "bg-stone-100 text-stone-500" },
+      { label: "Chiffre d'affaires", value: `${formatFCFA(revenue)} FCFA`, sub: `${formatFCFA(paid)} FCFA encaissés`, icon: "cash", iconBg: "bg-amber-50 text-amber-600" },
+      { label: "À retirer aujourd'hui", value: String(toRetrieve), sub: "Commandes prêtes", icon: "calendar", iconBg: "bg-slate-100 text-slate-500" },
+      { label: "Reste à encaisser", value: `${formatFCFA(rest)} FCFA`, sub: `Sur ${openCount} dépôts ouverts`, icon: "wallet", iconBg: "bg-amber-50 text-amber-600" },
+    ];
+  }, [depots]);
 
   const resetAll = () => {
     setSearch("");
@@ -135,6 +202,28 @@ export default function DepotsPage() {
         </Button>
       </div>
 
+      {loading ? (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-xl border border-border bg-white p-4">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="mt-3 h-7 w-32" />
+                <Skeleton className="mt-2 h-3 w-28" />
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border border-border bg-white p-4 sm:p-5">
+            <Skeleton className="h-5 w-36" />
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+      <>
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {kpis.map((k) => (
@@ -227,7 +316,7 @@ export default function DepotsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Toutes">Toutes</SelectItem>
-                  {AGENCES_DEPOT.map((a) => (
+                  {agencies.map((a) => (
                     <SelectItem key={a} value={a}>
                       {a}
                     </SelectItem>
@@ -452,6 +541,8 @@ export default function DepotsPage() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

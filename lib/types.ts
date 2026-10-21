@@ -98,3 +98,171 @@ export interface ClientsEnvelope {
   meta: { page: number; per_page: number; total: number; last_page: number };
   errors: null;
 }
+
+/* ----------------------------- Dashboard (backend) ------------------------ */
+
+export interface DashboardKpis {
+  revenue_today: number;
+  revenue_delta_pct: number;
+  deposits_today: number;
+  pieces_today: number;
+  retrieves_today: number;
+  retrieve_rate_pct: number;
+  loyalty_clients: number;
+  new_clients_month: number;
+  clients: number;
+  deposits_open: number;
+  unpaid_orders: number;
+  overdue_retrieves: number;
+}
+
+export interface DashboardSeriesPoint {
+  date: string;
+  revenue: number;
+  deposits: number;
+}
+
+export interface DashboardAgency {
+  agency_id: number;
+  name: string;
+  revenue: number;
+  revenue_delta_pct: number;
+  deposits: number;
+  retrieves: number;
+  unpaid_count: number;
+  unpaid_amount: number;
+  cash_balance: number;
+}
+
+export interface WorkshopColumn {
+  etat: string;
+  colonne: string;
+  label: string;
+  deposits: number;
+  pieces: number;
+}
+
+export interface DashboardWorkshop {
+  in_progress_deposits: number;
+  in_progress_pieces: number;
+  columns: WorkshopColumn[];
+  due_soon: unknown[];
+}
+
+export interface DashboardCash {
+  balance: number;
+  cash_in: number;
+  cash_out: number;
+  receipts_deposits: number;
+  by_payment_method: Record<string, number>;
+}
+
+export interface UnpaidBucket {
+  count: number;
+  amount: number;
+}
+
+export interface DashboardUnpaidAging {
+  total_amount: number;
+  total_count: number;
+  overdue_count: number;
+  buckets: {
+    "0_30": UnpaidBucket;
+    "31_89": UnpaidBucket;
+    "90_plus": UnpaidBucket;
+  };
+}
+
+export interface DashboardSync {
+  online: boolean;
+  last_sync_at: string;
+  pending_ops: number;
+  pending: unknown[];
+}
+
+export interface DashboardData {
+  currency: string;
+  generated_at: string;
+  kpis: DashboardKpis;
+  clients: number;
+  deposits_today: number;
+  retrieves_today: number;
+  receipts_today: number;
+  cash_balance_today: number;
+  series_7d: DashboardSeriesPoint[];
+  agencies: DashboardAgency[];
+  workshop_pipeline: DashboardWorkshop;
+  cash: DashboardCash;
+  unpaid_aging: DashboardUnpaidAging;
+  recent_activity: unknown[];
+  sync: DashboardSync;
+  scope: { pressing_id: number; agency_id: number | null; network_wide: boolean };
+}
+
+/* ------------------------------ Deposits (backend) ------------------------ */
+
+export interface DepositUnit {
+  id: number;
+  article_id: number | null;
+  service_id: number | null;
+  designation: string;
+  pricing_type: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  state: string | null;
+}
+
+export interface DepositTransaction {
+  id: number;
+  amount: number;
+  type: string;
+  payment_method: string;
+  transaction_date: string;
+}
+
+export interface ApiDeposit {
+  id: number;
+  client_uuid: string;
+  code: string;
+  qr_token: string | null;
+  pressing_id: number;
+  agency_id: number;
+  currency: string;
+  client_id: number;
+  deposit_date: string;
+  retrieve_date: string | null;
+  retrieved_at: string | null;
+  subtotal: number;
+  collection_fee: number;
+  delivery_fee: number;
+  discount: number;
+  discount_percent: number;
+  promo_code: string | null;
+  points_earned: number;
+  points_redeemed: number;
+  total: number;
+  advanced: number;
+  left_to_pay: number;
+  payment_method: string;
+  status: string;
+  etat: string;
+  etat_label: string;
+  colonne: string;
+  delivery_status: string | null;
+  notes: string | null;
+  items_count: number;
+  articles_label: string;
+  client_name: string;
+  client_phone: string | null;
+  agency: { id: number; name: string } | null;
+  client?: { id: number; fullname: string; phone_number: string | null } | null;
+  units?: DepositUnit[];
+  transactions?: DepositTransaction[];
+}
+
+export interface DepositsEnvelope {
+  data: ApiDeposit[];
+  meta: { page: number; per_page: number; total: number; last_page: number };
+  errors: unknown;
+}

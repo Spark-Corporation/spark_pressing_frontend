@@ -72,16 +72,16 @@ export default function Sidebar({ setMobileOpen }: SidebarProps) {
 
   const displayName = mounted
     ? currentUser
-      ? `${currentUser.firstName ?? ""} ${currentUser.lastName ?? ""}`.trim() || "Aicha Koné"
-      : "Aicha Koné"
-    : "Aicha Koné";
+      ? `${currentUser.firstName ?? ""} ${currentUser.lastName ?? ""}`.trim() || "Utilisateur"
+      : "Utilisateur"
+    : "Utilisateur";
   const initials =
     displayName
       .split(" ")
       .map((p) => p[0])
       .join("")
       .slice(0, 2)
-      .toUpperCase() || "AK";
+      .toUpperCase() || "U";
 
   return (
     <div className="flex h-full flex-col bg-primary text-white">

@@ -31,3 +31,23 @@ export async function getClientsAction() {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
+
+// ------------------------- DASHBOARD ---------------------------------
+export async function getDashboardAction() {
+  try {
+    const result = await api.get("/dashboard");
+    return { success: true, data: result.data ?? result };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ------------------------- DEPOSITS ---------------------------------
+export async function getDepositsAction() {
+  try {
+    const result = await api.get("/deposits");
+    return { success: true, data: result };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}

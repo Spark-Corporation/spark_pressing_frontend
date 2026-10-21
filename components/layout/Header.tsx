@@ -75,16 +75,21 @@ export default function Header() {
 
   const displayName = mounted
     ? currentUser
-      ? `${currentUser.firstName ?? ""} ${currentUser.lastName ?? ""}`.trim() || "Aicha Koné"
-      : "Aicha Koné"
-    : "Aicha Koné";
+      ? `${currentUser.firstName ?? ""} ${currentUser.lastName ?? ""}`.trim() || "Utilisateur"
+      : "Utilisateur"
+    : "Utilisateur";
+  const displayRole = mounted
+    ? currentUser?.role
+      ? currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)
+      : "Staff"
+    : "Staff";
   const initials =
     displayName
       .split(" ")
       .map((p) => p[0])
       .join("")
       .slice(0, 2)
-      .toUpperCase() || "AK";
+      .toUpperCase() || "U";
 
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-white px-4 py-3 md:px-6">
@@ -144,7 +149,7 @@ export default function Header() {
           </span>
           <span className="hidden leading-tight xl:block">
             <span className="block text-[13px] font-bold">{displayName}</span>
-            <span className="block text-[11px] font-normal text-muted-foreground">Directrice réseau</span>
+            <span className="block text-[11px] font-normal text-muted-foreground">{displayRole}</span>
           </span>
           <ChevronDown className="hidden size-4 text-muted-foreground sm:block" />
         </Button>

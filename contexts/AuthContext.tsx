@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isAuthRoute) router.push("/login");
   }, [auth.isAuthenticated, router]);
 
-  const login = (token: string, user?: User) => {
+  const login = useCallback((token: string, user?: User) => {
     Cookies.set("token", token, {
       expires: 1,
       secure: process.env.NODE_ENV === "production",
@@ -79,18 +79,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     router.push("/");
-  };
+  }, [router]);
 
-  const getCurrentUser = (currentUser: User) => {
+  const getCurrentUser = useCallback((currentUser: User) => {
     Cookies.set("user", JSON.stringify(currentUser), {
       expires: 1,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
     });
     setAuth((prev) => ({ ...prev, currentUser }));
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     Cookies.remove("token");
     Cookies.remove("user");
     setAuth({
@@ -100,16 +100,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading: false,
     });
     router.push("/login");
-  };
+  }, [router]);
 
   const setLoading = useCallback((isLoading: boolean) => {
-    setAuth((prev) => ({ ...prev, isLoading }));
+    setAuth((prev) => (prev.isLoading === isLoading ? prev : { ...prev, isLoading }));
   }, []);
 
+  const value = React.useMemo(
+    () => ({ ...auth, login, logout, getCurrentUser, setLoading }),
+    [auth, login, logout, getCurrentUser, setLoading],
+  );
+
   return (
-    <AuthContext.Provider
-      value={{ ...auth, login, logout, getCurrentUser, setLoading }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

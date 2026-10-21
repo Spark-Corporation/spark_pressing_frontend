@@ -1,129 +1,65 @@
 "use client";
 
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { getDashboardAction } from "@/actions/AdminAction";
+import { handleApiAction } from "@/functions/handleResponseApi";
+import type { DashboardData } from "@/lib/types";
 
-/* ------------------------------- Données mock ------------------------------ */
-
-const kpis = [
-  {
-    label: "Chiffre d'affaires",
-    value: "1 845 500 FCFA",
-    badge: "+12,4 %",
-    badgeClass: "bg-emerald-50 text-emerald-700",
-    sub: "vs. même jour sem. dernière",
-    icon: "cash",
-    iconBg: "bg-stone-100 text-stone-500",
-  },
-  {
-    label: "Dépôts du jour",
-    value: "126",
-    badge: "+6,5 %",
-    badgeClass: "bg-amber-50 text-amber-700",
-    sub: "418 pièces réceptionnées",
-    icon: "box",
-    iconBg: "bg-slate-100 text-slate-500",
-  },
-  {
-    label: "Retraits effectués",
-    value: "94",
-    badge: "74,6 %",
-    badgeClass: "bg-amber-50 text-amber-700",
-    sub: "9 commandes à notifier",
-    icon: "receipt",
-    iconBg: "bg-stone-100 text-stone-500",
-  },
-  {
-    label: "Clients fidélité",
-    value: "312",
-    badge: "+5,1 %",
-    badgeClass: "bg-emerald-50 text-emerald-700",
-    sub: "23 nouveaux ce mois",
-    icon: "heart",
-    iconBg: "bg-stone-100 text-stone-500",
-  },
-];
-
-const agences = [
-  { name: "Plateau", ca: "5 620 000 FCFA", pct: 100, bar: "bg-primary", dot: "bg-primary", delta: "+14,2 %", up: true },
-  { name: "Bingerville", ca: "4 965 500 FCFA", pct: 88, bar: "bg-emerald-600", dot: "bg-emerald-600", delta: "+12,4 %", up: true },
-  { name: "Cocody Angré", ca: "4 320 000 FCFA", pct: 77, bar: "bg-secondary", dot: "bg-secondary", delta: "+7,8 %", up: true },
-  { name: "Marcory", ca: "3 185 500 FCFA", pct: 57, bar: "bg-slate-300", dot: "bg-slate-300", delta: "−2,1 %", up: false },
-];
-
-const pipeline = [
-  { label: "À trier", count: 14, pieces: "46 pièces", icon: "task", bg: "bg-slate-100" },
-  { label: "Lavage", count: 22, pieces: "78 pièces", icon: "washing-machine", bg: "bg-sky-50" },
-  { label: "Repassage", count: 18, pieces: "61 pièces", icon: "iron", bg: "bg-amber-50" },
-  { label: "Contrôle", count: 9, pieces: "31 pièces", icon: "quality", bg: "bg-orange-50" },
-  { label: "Prêt", count: 35, pieces: "104 pièces", icon: "check-circle", bg: "bg-emerald-50" },
-];
-
-const activites = [
-  {
-    icon: "box",
-    iconBg: "bg-sky-50 text-sky-600",
-    title: "Dépôt enregistré · BG-02621",
-    sub: "Mariam Traoré · 7 pièces · Express",
-    amount: "+32 500 FCFA",
-    time: "il y a 3 min",
-    amountClass: "text-foreground",
-  },
-  {
-    icon: "shirt",
-    iconBg: "bg-stone-100 text-stone-600",
-    title: "Retrait finalisé · BO-02588",
-    sub: "Koffi N'Guessan · paiement Mobile Money",
-    amount: "+18 000 FCFA",
-    time: "il y a 11 min",
-    amountClass: "text-foreground",
-  },
-  {
-    icon: "quality",
-    iconBg: "bg-amber-50 text-amber-600",
-    title: "Commande passée au contrôle",
-    sub: "BO-02602 · 4 costumes · Opératrice : Grâce",
-    amount: "Contrôle",
-    time: "",
-    amountClass: "text-amber-600",
-  },
-  {
-    icon: "receipt",
-    iconBg: "bg-red-50 text-red-500",
-    title: "Dépense de caisse validée",
-    sub: "Produits détachants · Fournisseur CleanPro",
-    amount: "−45 000 FCFA",
-    time: "il y a 26 min",
-    amountClass: "text-red-500",
-  },
-  {
-    icon: "star",
-    iconBg: "bg-violet-50 text-violet-600",
-    title: "Nouveau membre fidélité",
-    sub: "Fatou Diabaté · niveau Signature",
-    amount: "+120 pts",
-    time: "il y a 34 min",
-    amountClass: "text-foreground",
-  },
-];
-
+const fmt = (n: number | null | undefined) => new Intl.NumberFormat("fr-FR").format(n ?? 0);
+const fmtMoney = (n: number | null | undefined) => `${fmt(n)} FCFA`;
+const fmtPct = (n: number | null | undefined) => {
+  const v = n ?? 0;
+  return `${v > 0 ? "+" : ""}${v.toLocaleString("fr-FR")} %`;
+};
 
 /* --------------------------------- Graphique ------------------------------- */
-function RevenueChart() {
-  // Courbe lissée (7 points Lun 21 → Dim 27)
-  const path =
-    "M 20 190 C 60 185, 80 150, 120 145 C 160 140, 170 100, 210 95 C 250 90, 260 110, 300 85 C 340 60, 360 95, 400 80 C 440 65, 460 50, 500 48 C 530 46, 555 40, 580 35";
-  const points = [
-    { x: 20, y: 190 },
-    { x: 120, y: 145 },
-    { x: 210, y: 95 },
-    { x: 300, y: 85 },
-    { x: 400, y: 80 },
-    { x: 500, y: 48 },
-  ];
+
+function RevenueChart({ series }: { series: { date: string; revenue: number | null }[] }) {
+  const { path, points, days, maxLabel } = useMemo(() => {
+    if (series.length < 2) {
+      return { path: "", points: [] as { x: number; y: number }[], days: [] as string[], maxLabel: "0" };
+    }
+    const w = 600;
+    const h = 200;
+    const padX = 20;
+    const padY = 20;
+    const max = Math.max(...series.map((s) => s.revenue ?? 0)) || 1;
+    const stepX = (w - padX * 2) / (series.length - 1);
+    const pts = series.map((s, i) => ({
+      x: Math.round(padX + i * stepX),
+      y: Math.round(h - padY - ((s.revenue ?? 0) / max) * (h - padY * 2)),
+    }));
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const curr = pts[i];
+      const cx = (prev.x + curr.x) / 2;
+      d += ` C ${cx} ${prev.y}, ${cx} ${curr.y}, ${curr.x} ${curr.y}`;
+    }
+    const lbl = (v: number) => (v >= 1000000 ? `${(v / 1000000).toFixed(1).replace(".", ",")} M` : `${Math.round(v / 1000)} k`);
+    const dayLabels = series.map((s) => {
+      const dt = new Date(s.date);
+      return dt.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" });
+    });
+    return { path: d, points: pts, days: dayLabels, maxLabel: lbl(max) };
+  }, [series]);
+
+  if (series.length < 2) {
+    return (
+      <div className="mt-2 flex h-52 items-center justify-center rounded-lg bg-muted/40 text-[13px] text-muted-foreground sm:h-60">
+        Données insuffisantes pour afficher la courbe.
+      </div>
+    );
+  }
+
+  const last = series[series.length - 1];
+
   return (
     <div className="relative mt-2">
       <svg viewBox="0 0 600 220" className="h-52 w-full sm:h-60" role="img" aria-label="Revenu du réseau">
@@ -131,7 +67,7 @@ function RevenueChart() {
           <g key={i}>
             <line x1="0" x2="600" y1={20 + i * 55} y2={20 + i * 55} stroke="#eef0ee" strokeWidth="1" />
             <text x="0" y={14 + i * 55} fontSize="11" fill="#9aa39e">
-              {["3 M", "2 M", "1 M", "0"][i]}
+              {i === 0 ? maxLabel : i === 3 ? "0" : ""}
             </text>
           </g>
         ))}
@@ -144,12 +80,14 @@ function RevenueChart() {
         ))}
       </svg>
       <div className="pointer-events-none absolute top-1/2 left-1/2 hidden -translate-x-6 -translate-y-16 rounded-md bg-primary px-2.5 py-1.5 text-center shadow-lg sm:block">
-        <p className="text-[11px] font-bold text-secondary">2 860 000 FCFA</p>
-        <p className="text-[10px] text-white/70">Dim 27 sept.</p>
+        <p className="text-[11px] font-bold text-secondary">{fmtMoney(last.revenue)}</p>
+        <p className="text-[10px] text-white/70">
+          {new Date(last.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+        </p>
       </div>
       <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-        {["Lun 21", "Mar 22", "Mer 23", "Jeu 24", "Ven 25", "Sam 26", "Dim 27"].map((d) => (
-          <span key={d}>{d}</span>
+        {days.map((d, i) => (
+          <span key={i}>{d}</span>
         ))}
       </div>
     </div>
@@ -158,16 +96,164 @@ function RevenueChart() {
 
 /* ----------------------------------- Page ---------------------------------- */
 
+const AGENCY_COLORS = [
+  { bar: "bg-primary", dot: "bg-primary" },
+  { bar: "bg-emerald-600", dot: "bg-emerald-600" },
+  { bar: "bg-secondary", dot: "bg-secondary" },
+  { bar: "bg-slate-300", dot: "bg-slate-300" },
+  { bar: "bg-sky-500", dot: "bg-sky-500" },
+  { bar: "bg-violet-500", dot: "bg-violet-500" },
+];
+
+const PIPELINE_STYLES: Record<string, { icon: AppIconName; bg: string }> = {
+  waiting: { icon: "task", bg: "bg-slate-100" },
+  washing: { icon: "washing-machine", bg: "bg-sky-50" },
+  ironing: { icon: "iron", bg: "bg-amber-50" },
+  control: { icon: "quality", bg: "bg-orange-50" },
+  ready: { icon: "check-circle", bg: "bg-emerald-50" },
+};
+
+const PAYMENT_METHODS: { key: string; label: string; bar: string }[] = [
+  { key: "cash", label: "Espèces", bar: "bg-primary" },
+  { key: "mobile_money", label: "Mobile Money", bar: "bg-emerald-600" },
+  { key: "card", label: "Carte / Virement", bar: "bg-secondary" },
+  { key: "wallet", label: "Portefeuille", bar: "bg-sky-500" },
+  { key: "other", label: "Autres", bar: "bg-slate-300" },
+];
+
+const emptySubscribe = () => () => {};
+
 export default function DashboardPage() {
   const { updatePath } = useGlobalData();
+  const { logout, setLoading, currentUser } = useAuth();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
+
+  const firstName = mounted && currentUser?.firstName ? currentUser.firstName.trim() : "à vous";
+
+  useEffect(() => {
+    handleApiAction({
+      action: getDashboardAction,
+      setLoading,
+      logout,
+      onSuccess: (res) => setData(res as DashboardData),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const k = data?.kpis;
+
+  const kpis = useMemo((): { label: string; value: string; badge: string; badgeClass: string; sub: string; icon: AppIconName; iconBg: string }[] => {
+    if (!k) return [];    return [
+      {
+        label: "Chiffre d'affaires",
+        value: fmtMoney(k.revenue_today),
+        badge: fmtPct(k.revenue_delta_pct),
+        badgeClass: (k.revenue_delta_pct ?? 0) >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600",
+        sub: "vs. même jour sem. dernière",
+        icon: "cash",
+        iconBg: "bg-stone-100 text-stone-500",
+      },
+      {
+        label: "Dépôts du jour",
+        value: fmt(k.deposits_today),
+        badge: `${fmt(k.pieces_today)} pièces`,
+        badgeClass: "bg-amber-50 text-amber-700",
+        sub: `${fmt(k.deposits_open)} dépôts en cours`,
+        icon: "box",
+        iconBg: "bg-slate-100 text-slate-500",
+      },
+      {
+        label: "Retraits effectués",
+        value: fmt(k.retrieves_today),
+        badge: `${(k.retrieve_rate_pct ?? 0).toLocaleString("fr-FR")} %`,
+        badgeClass: "bg-amber-50 text-amber-700",
+        sub: `${fmt(k.overdue_retrieves)} retards à traiter`,
+        icon: "receipt",
+        iconBg: "bg-stone-100 text-stone-500",
+      },
+      {
+        label: "Clients fidélité",
+        value: fmt(k.loyalty_clients),
+        badge: `+${fmt(k.new_clients_month)}`,
+        badgeClass: "bg-emerald-50 text-emerald-700",
+        sub: `${fmt(k.clients)} clients au total`,
+        icon: "heart",
+        iconBg: "bg-stone-100 text-stone-500",
+      },
+    ];
+  }, [k]);
+
+  const agences = useMemo(() => {
+    if (!data?.agencies?.length) return [];
+    const max = Math.max(...data.agencies.map((a) => a.revenue ?? 0)) || 1;
+    return data.agencies.map((a, i) => ({
+      name: a.name,
+      ca: fmtMoney(a.revenue),
+      pct: Math.round((a.revenue / max) * 100),
+      ...AGENCY_COLORS[i % AGENCY_COLORS.length],
+      delta: fmtPct(a.revenue_delta_pct),
+      up: (a.revenue_delta_pct ?? 0) >= 0,
+    }));
+  }, [data]);
+
+  const pipeline = useMemo(() => {
+    if (!data?.workshop_pipeline?.columns) return [];
+    return data.workshop_pipeline.columns.map((c) => {
+      const style = PIPELINE_STYLES[c.etat] ?? PIPELINE_STYLES.waiting;
+      return {
+        label: c.label,
+        count: c.deposits,
+        pieces: `${c.pieces} pièces`,
+        icon: style.icon,
+        bg: style.bg,
+      };
+    });
+  }, [data]);
+
+  const paymentRows = useMemo(() => {
+    if (!data?.cash) return [];
+    const methods = data.cash.by_payment_method ?? {};
+    const total = Object.values(methods).reduce((s, v) => s + v, 0) || 1;
+    return PAYMENT_METHODS.filter((m) => (methods[m.key] ?? 0) > 0).map((m) => ({
+      label: m.label,
+      value: fmtMoney(methods[m.key] ?? 0),
+      pct: Math.round(((methods[m.key] ?? 0) / total) * 100),
+      bar: m.bar,
+    }));
+  }, [data]);
+
+  const buckets = useMemo(() => {
+    if (!data?.unpaid_aging) return [];
+    const b = data.unpaid_aging.buckets;
+    return [
+      { tranche: "0–30 jours", montant: fmtMoney(b["0_30"].amount), count: `${fmt(b["0_30"].count)} dépôts` },
+      { tranche: "31–89 jours", montant: fmtMoney(b["31_89"].amount), count: `${fmt(b["31_89"].count)} dépôts` },
+      { tranche: "90+ jours", montant: fmtMoney(b["90_plus"].amount), count: `${fmt(b["90_plus"].count)} dépôts` },
+    ];
+  }, [data]);
+
+  const syncTime = data?.sync?.last_sync_at
+    ? new Date(data.sync.last_sync_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    : "—";
+
+  const generatedDate = data?.generated_at
+    ? new Date(data.generated_at).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : "";
+
+  const cumul7d = useMemo(() => {
+    if (!data?.series_7d?.length) return 0;
+    return data.series_7d.reduce((s, p) => s + p.revenue, 0);
+  }, [data]);
+
   return (
     <div className="space-y-5">
       {/* En-tête */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">Bonjour Aïcha,</h1>
+          <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">Bonjour {firstName},</h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
-            Voici les performances du réseau au lundi 28 septembre 2026.
+            Voici les performances du réseau{generatedDate ? ` au ${generatedDate}` : ""}.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -188,18 +274,18 @@ export default function DashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((k) => (
-          <div key={k.label} className="rounded-xl border border-border bg-white p-4">
+        {kpis.map((kd) => (
+          <div key={kd.label} className="rounded-xl border border-border bg-white p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">{k.label}</p>
-              <span className={cn("flex size-8 items-center justify-center rounded-lg", k.iconBg)}>
-                <AppIcon name={k.icon as AppIconName} className="size-4" />
+              <p className="text-xs font-medium text-muted-foreground">{kd.label}</p>
+              <span className={cn("flex size-8 items-center justify-center rounded-lg", kd.iconBg)}>
+                <AppIcon name={kd.icon} className="size-4" />
               </span>
             </div>
-            <p className="mt-2 text-xl font-extrabold tracking-tight">{k.value}</p>
+            <p className="mt-2 text-xl font-extrabold tracking-tight">{kd.value}</p>
             <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold", k.badgeClass)}>{k.badge}</span>
-              {k.sub}
+              <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold", kd.badgeClass)}>{kd.badge}</span>
+              {kd.sub}
             </p>
           </div>
         ))}
@@ -212,7 +298,12 @@ export default function DashboardPage() {
             <div>
               <h2 className="text-sm font-bold">Revenu du réseau</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                18 291 000 FCFA cumul sur 7 jours · <span className="font-semibold text-emerald-600">+10,8 %</span>
+                {fmtMoney(cumul7d)} cumul sur {data?.series_7d?.length ?? 0} jours
+                {k ? (
+                  <>
+                    {" "}· <span className={cn("font-semibold", (k.revenue_delta_pct ?? 0) >= 0 ? "text-emerald-600" : "text-red-500")}>{fmtPct(k.revenue_delta_pct)}</span>
+                  </>
+                ) : null}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -224,7 +315,7 @@ export default function DashboardPage() {
               </Button>
             </div>
           </div>
-          <RevenueChart />
+          <RevenueChart series={data?.series_7d ?? []} />
         </div>
 
         <div className="rounded-xl border border-border bg-white p-5">
@@ -234,8 +325,11 @@ export default function DashboardPage() {
               Rapport <ArrowUpRight className="size-3.5" />
             </Button>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">CA cumulé · 21–27 septembre</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">CA · {generatedDate || "aujourd'hui"}</p>
           <div className="mt-4 space-y-4">
+            {agences.length === 0 && (
+              <p className="text-xs text-muted-foreground">Aucune agence à afficher.</p>
+            )}
             {agences.map((a) => (
               <div key={a.name}>
                 <div className="flex items-center justify-between text-xs">
@@ -263,17 +357,22 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-bold">Pipeline atelier</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">98 commandes en cours · 320 pièces</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {fmt(data?.workshop_pipeline?.in_progress_deposits ?? 0)} commandes en cours · {fmt(data?.workshop_pipeline?.in_progress_pieces ?? 0)} pièces
+              </p>
             </div>
             <Button variant="ghost" size="sm" className="gap-1 text-xs font-semibold text-muted-foreground">
               Ouvrir l&apos;atelier <ArrowUpRight className="size-3.5" />
             </Button>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {pipeline.length === 0 && (
+              <p className="col-span-full text-xs text-muted-foreground">Aucune étape en cours.</p>
+            )}
             {pipeline.map((s) => (
               <div key={s.label} className={cn("rounded-xl p-3", s.bg)}>
                 <div className="flex items-center justify-between">
-                  <AppIcon name={s.icon as AppIconName} className="size-4 text-muted-foreground" />
+                  <AppIcon name={s.icon} className="size-4 text-muted-foreground" />
                   <span className="text-lg font-extrabold">{s.count}</span>
                 </div>
                 <p className="mt-2 text-xs font-bold">{s.label}</p>
@@ -281,24 +380,24 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-xs ring-1 ring-amber-100">
-            <AppIcon name="clock" className="size-4 text-amber-600" />
-            <p className="flex-1 text-amber-900">
-              <span className="font-bold">8 commandes approchent leur délai promis</span>
-              <br />
-              <span className="text-amber-700">Priorité aux tickets BO-02614, BO-02636 et BO-02597</span>
-            </p>
-            <Button variant="link" size="sm" className="font-bold text-amber-700">
-              À traiter
-            </Button>
-          </div>
+          {Array.isArray(data?.workshop_pipeline?.due_soon) && data.workshop_pipeline.due_soon.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-xs ring-1 ring-amber-100">
+              <AppIcon name="clock" className="size-4 text-amber-600" />
+              <p className="flex-1 text-amber-900">
+                <span className="font-bold">{data.workshop_pipeline.due_soon.length} commandes approchent leur délai promis</span>
+              </p>
+              <Button variant="link" size="sm" className="font-bold text-amber-700">
+                À traiter
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border border-border bg-white p-5">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-bold">Flux de caisse</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">Bingerville · aujourd&apos;hui</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Aujourd&apos;hui</p>
             </div>
             <Button variant="ghost" size="sm" className="gap-1 text-xs font-semibold text-muted-foreground">
               Détails <ArrowUpRight className="size-3.5" />
@@ -306,7 +405,7 @@ export default function DashboardPage() {
           </div>
           <p className="mt-3 text-xs text-muted-foreground">Solde net</p>
           <div className="flex items-center justify-between">
-            <p className="text-xl font-extrabold">1 845 500 FCFA</p>
+            <p className="text-xl font-extrabold">{fmtMoney(data?.cash?.balance ?? 0)}</p>
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
               <span className="size-1.5 rounded-full bg-emerald-500" />
               Caisse ouverte
@@ -315,19 +414,18 @@ export default function DashboardPage() {
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
             <div className="rounded-lg bg-emerald-50/70 p-2.5">
               <p className="text-[11px] text-muted-foreground">Encaissements</p>
-              <p className="font-extrabold text-emerald-700">+1 845 500</p>
+              <p className="font-extrabold text-emerald-700">+{fmt(data?.cash?.receipts_deposits ?? 0)}</p>
             </div>
             <div className="rounded-lg bg-red-50/70 p-2.5">
               <p className="text-[11px] text-muted-foreground">Décaissements</p>
-              <p className="font-extrabold text-red-500">−100 000</p>
+              <p className="font-extrabold text-red-500">−{fmt(data?.cash?.cash_out ?? 0)}</p>
             </div>
           </div>
           <div className="mt-4 space-y-3 text-xs">
-            {[
-              { label: "Espèces", value: "742 500 FCFA", pct: 42, bar: "bg-primary" },
-              { label: "Mobile Money", value: "935 000 FCFA", pct: 55, bar: "bg-emerald-600" },
-              { label: "Carte / Virement", value: "268 000 FCFA", pct: 18, bar: "bg-secondary" },
-            ].map((r) => (
+            {paymentRows.length === 0 && (
+              <p className="text-[11px] text-muted-foreground">Aucun paiement enregistré.</p>
+            )}
+            {paymentRows.map((r) => (
               <div key={r.label}>
                 <div className="flex justify-between">
                   <span className="font-medium text-muted-foreground">{r.label}</span>
@@ -356,21 +454,17 @@ export default function DashboardPage() {
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-xl bg-slate-50 p-4">
             <p className="text-[11px] text-muted-foreground">Solde total impayé</p>
-            <p className="text-lg font-extrabold">1 240 000 FCFA</p>
-            <p className="text-[11px] text-muted-foreground">94 dépôts en retard</p>
+            <p className="text-lg font-extrabold">{fmtMoney(data?.unpaid_aging?.total_amount ?? 0)}</p>
+            <p className="text-[11px] text-muted-foreground">{fmt(data?.unpaid_aging?.total_count ?? 0)} dépôts en retard</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-4">
             <p className="text-[11px] text-muted-foreground">Dépôts en retard</p>
-            <p className="text-lg font-extrabold">94</p>
-            <p className="text-[11px] text-muted-foreground">18 à traiter aujourd&apos;hui</p>
+            <p className="text-lg font-extrabold">{fmt(data?.unpaid_aging?.total_count ?? 0)}</p>
+            <p className="text-[11px] text-muted-foreground">{fmt(data?.unpaid_aging?.overdue_count ?? 0)} à traiter aujourd&apos;hui</p>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {[
-            { tranche: "0–30 jours", montant: "420 000 FCFA", count: "32 dépôts" },
-            { tranche: "31–89 jours", montant: "540 000 FCFA", count: "41 dépôts" },
-            { tranche: "90+ jours", montant: "280 000 FCFA", count: "21 dépôts" },
-          ].map((t) => (
+          {buckets.map((t) => (
             <div key={t.tranche} className="rounded-xl bg-slate-50 p-4">
               <p className="text-[11px] text-muted-foreground">{t.tranche}</p>
               <p className="font-extrabold">{t.montant}</p>
@@ -393,71 +487,43 @@ export default function DashboardPage() {
             </Button>
           </div>
           <div className="mt-4 divide-y divide-border">
-            {activites.map((a, i) => (
-              <div key={i} className="flex items-center gap-3 py-3">
-                <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", a.iconBg)}>
-                  <AppIcon name={a.icon as AppIconName} className="size-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold">{a.title}</p>
-                  <p className="truncate text-xs text-muted-foreground">{a.sub}</p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className={cn("text-xs font-bold", a.amountClass)}>{a.amount}</p>
-                  {a.time ? <p className="text-[11px] text-muted-foreground">{a.time}</p> : null}
-                </div>
-              </div>
-            ))}
+            {(data?.recent_activity ?? []).length === 0 && (
+              <p className="py-6 text-center text-[13px] text-muted-foreground">
+                Aucune activité récente.
+              </p>
+            )}
           </div>
         </div>
 
         <div className="rounded-xl border border-border bg-white p-5">
           <h2 className="text-sm font-bold">Synchronisation</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Continuité hors-ligne · Bingerville</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Continuité hors-ligne</p>
 
           <div className="mt-4 flex items-center gap-3 rounded-xl bg-stone-50 p-3 ring-1 ring-border/60">
             <span className="flex size-10 items-center justify-center rounded-full bg-white shadow-sm">
               <AppIcon name="wallet" className="size-5 text-muted-foreground" />
             </span>
             <div>
-              <p className="flex items-center gap-1.5 text-[13px] font-bold text-emerald-700">
-                En ligne <span className="size-1.5 rounded-full bg-emerald-500" />
+              <p className={cn(
+                "flex items-center gap-1.5 text-[13px] font-bold",
+                data?.sync?.online ? "text-emerald-700" : "text-amber-700",
+              )}>
+                {data?.sync?.online ? "En ligne" : "Hors ligne"}{" "}
+                <span className={cn("size-1.5 rounded-full", data?.sync?.online ? "bg-emerald-500" : "bg-amber-500")} />
               </p>
-              <p className="text-[11px] text-muted-foreground">Dernière synchronisation à 10:19</p>
+              <p className="text-[11px] text-muted-foreground">Dernière synchronisation à {syncTime}</p>
             </div>
           </div>
 
           <div className="mt-4 flex items-center justify-between">
             <p className="text-xs font-bold">Opérations en attente</p>
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600">
-              <AppIcon name="alert" className="size-3.5" /> 4 à envoyer
+            <span className={cn(
+              "inline-flex items-center gap-1 text-[11px] font-bold",
+              (data?.sync?.pending_ops ?? 0) > 0 ? "text-amber-600" : "text-emerald-600",
+            )}>
+              <AppIcon name={(data?.sync?.pending_ops ?? 0) > 0 ? "alert" : "check-circle"} className="size-3.5" />
+              {(data?.sync?.pending_ops ?? 0) > 0 ? `${data?.sync?.pending_ops} à envoyer` : "Tout est synchronisé"}
             </span>
-          </div>
-
-          <div className="mt-3 space-y-2.5 text-xs">
-            <div className="flex items-center gap-2.5 rounded-lg border border-border p-2.5">
-              <AppIcon name="cash" className="size-4 text-muted-foreground" />
-              <div className="flex-1">
-                <p className="font-bold">2 dépôts</p>
-                <p className="text-muted-foreground">BG-02619, BG-02620</p>
-              </div>
-              <span className="text-[11px] text-muted-foreground">il y a 16 min</span>
-            </div>
-            <div className="flex items-center gap-2.5 rounded-lg border border-border p-2.5">
-              <AppIcon name="check-circle" className="size-4 text-muted-foreground" />
-              <div className="flex-1">
-                <p className="font-bold">1 encaissement</p>
-                <p className="text-muted-foreground">18 500 · Orange Money</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 rounded-lg border border-border p-2.5">
-              <AppIcon name="notification" className="size-4 text-muted-foreground" />
-              <div className="flex-1">
-                <p className="font-bold">1 mise à jour client</p>
-                <p className="text-muted-foreground">Téléphone et consentement SMS</p>
-              </div>
-              <span className="text-[11px] text-muted-foreground">il y a 27 min</span>
-            </div>
           </div>
 
           <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
@@ -473,7 +539,7 @@ export default function DashboardPage() {
       {/* Bandeau bas mobile : rappels */}
       <div className="flex items-center gap-2 rounded-xl border border-border bg-white p-3 text-xs text-muted-foreground xl:hidden">
         <AppIcon name="check-circle" className="size-4 text-emerald-600" />
-        Données à jour · 4 agences synchronisées il y a 2 min
+        Données à jour · {data?.agencies?.length ?? 0} agences
         <span className="ml-auto inline-flex items-center gap-1 font-semibold text-foreground">
           <AppIcon name="eye" className="size-3.5" /> Réseau
         </span>
