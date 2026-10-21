@@ -26,7 +26,7 @@ export async function loginAction(params?: { email: string; password: string }) 
 export async function getClientsAction() {
   try {
     const result = await api.get("/clients");
-    return { success: true, data: result.data};
+    return { success: true, data: result };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

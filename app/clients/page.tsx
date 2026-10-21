@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +39,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AGENCES, FIDELITE_TOTAUX, type Client, type FideliteGroupe, type ClientStatut } from "./data";
+import { AGENCES, type Client, type FideliteGroupe, type ClientStatut } from "./data";
 import { handleApiAction } from "@/functions/handleResponseApi";
 import { getClientsAction } from "@/actions/AdminAction";
 import { useAuth } from "@/contexts/AuthContext";
@@ -88,13 +89,6 @@ function mapClient(client: ApiClient): Client {
   };
 }
 
-const kpis = [
-  { label: "Clients actifs", value: "2 846", badge: "+8,2 % ce mois", icon: Users, iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Nouveaux clients", value: "184", badge: "+24 cette semaine", icon: UserPlus, iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Clients VIP", value: "126", badge: "4,4 % du portefeuille", icon: Crown, iconBg: "bg-amber-50 text-amber-600" },
-  { label: "Points attribués", value: "482 k", badge: "+12,5 % ce mois", icon: Gift, iconBg: "bg-amber-50 text-amber-600" },
-];
-
 const groupeBadge: Record<FideliteGroupe, string> = {
   Essentiel: "bg-muted text-muted-foreground",
   Argent: "bg-slate-200/70 text-slate-600",
@@ -136,6 +130,7 @@ export default function ClientsPage() {
   const [columns, setColumns] = useState({ frequence: true, valeur: true, points: true, groupe: true });
   const [clients, setClients] = useState<Client[]>([]);
   const [total, setTotal] = useState(0);
+  const [loading, setLoadingPage] = useState(true);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -165,9 +160,48 @@ export default function ClientsPage() {
         const envelope = res as ClientsEnvelope;
         setClients((envelope.data || []).map(mapClient));
         setTotal(envelope.meta?.total || 0);
+        setLoadingPage(false);
+      },
+      onError: () => {
+        setLoadingPage(false);
       },
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const stats = useMemo(() => {
+    const actifs = clients.filter((c) => c.statut === "Actif" || c.statut === "VIP").length;
+    const thisWeek = clients.filter((c) => c.daysAgo <= 7).length;
+    const vip = clients.filter((c) => c.groupe === "Platine" || c.statut === "VIP").length;
+    const totalPoints = clients.reduce((s, c) => s + c.points, 0);
+    const vipPct = clients.length > 0 ? Math.round((vip / clients.length) * 1000) / 10 : 0;
+
+    const kpiList = [
+      { label: "Clients actifs", value: total.toLocaleString("fr-FR"), badge: `${actifs} actifs`, icon: Users, iconBg: "bg-stone-100 text-stone-500" },
+      { label: "Nouveaux clients", value: String(thisWeek), badge: "cette semaine", icon: UserPlus, iconBg: "bg-stone-100 text-stone-500" },
+      { label: "Clients VIP", value: String(vip), badge: `${vipPct} % du portefeuille`, icon: Crown, iconBg: "bg-amber-50 text-amber-600" },
+      { label: "Points attribués", value: totalPoints >= 1000 ? `${(totalPoints / 1000).toFixed(0)} k` : String(totalPoints), badge: "cumulés", icon: Gift, iconBg: "bg-amber-50 text-amber-600" },
+    ];
+
+    const byGroupe: Record<FideliteGroupe, number> = { Essentiel: 0, Argent: 0, Or: 0, Platine: 0 };
+    clients.forEach((c) => { byGroupe[c.groupe]++; });
+    const count = clients.length || 1;
+    const repartition = [
+      { label: "Essentiel", pct: Math.round((byGroupe.Essentiel / count) * 100), bar: "[&_[data-slot=progress-indicator]]:bg-slate-400", dot: "bg-slate-400" },
+      { label: "Argent", pct: Math.round((byGroupe.Argent / count) * 100), bar: "[&_[data-slot=progress-indicator]]:bg-emerald-500", dot: "bg-emerald-500" },
+      { label: "Or & Platine", pct: Math.round(((byGroupe.Or + byGroupe.Platine) / count) * 100), bar: "[&_[data-slot=progress-indicator]]:bg-amber-500", dot: "bg-amber-500" },
+    ];
+
+    const fideliteTotaux = [
+      { key: "Tous" as const, label: "Tous", total: total.toLocaleString("fr-FR") },
+      { key: "Essentiel" as const, label: "Essentiel", total: byGroupe.Essentiel.toLocaleString("fr-FR") },
+      { key: "Argent" as const, label: "Argent", total: byGroupe.Argent.toLocaleString("fr-FR") },
+      { key: "Or" as const, label: "Or", total: byGroupe.Or.toLocaleString("fr-FR") },
+      { key: "Platine" as const, label: "Platine", total: byGroupe.Platine.toLocaleString("fr-FR") },
+    ];
+
+    return { kpiList, repartition, fideliteTotaux, byGroupe };
+  }, [clients, total]);
 
   return (
     <div className="space-y-5">
@@ -185,9 +219,31 @@ export default function ClientsPage() {
         </Button>
       </div>
 
+      {loading ? (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-xl border border-border bg-white p-4">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="mt-3 h-7 w-32" />
+                <Skeleton className="mt-2 h-3 w-28" />
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border border-border bg-white p-4 sm:p-5">
+            <Skeleton className="h-5 w-36" />
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+      <>
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((k) => (
+        {stats.kpiList.map((k) => (
           <div key={k.label} className="rounded-xl border border-border bg-white p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">{k.label}</p>
@@ -244,7 +300,7 @@ export default function ClientsPage() {
 
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="mr-1 font-medium text-muted-foreground">Fidélité</span>
-            {FIDELITE_TOTAUX.map((f) => {
+            {stats.fideliteTotaux.map((f) => {
               const active = fidelite === f.key;
               return (
                 <Button
@@ -301,15 +357,11 @@ export default function ClientsPage() {
         <div className="rounded-xl border border-border bg-white p-4">
           <div className="flex items-baseline justify-between">
             <h2 className="text-[13px] font-bold">Répartition fidélité</h2>
-            <p className="text-sm font-extrabold">2 846</p>
+            <p className="text-sm font-extrabold">{total.toLocaleString("fr-FR")}</p>
           </div>
           <p className="mt-0.5 text-[11px] text-muted-foreground">Portefeuille actif</p>
           <div className="mt-3 space-y-3 text-xs">
-            {[
-              { label: "Essentiel", pct: 57, bar: "[&_[data-slot=progress-indicator]]:bg-slate-400", dot: "bg-slate-400" },
-              { label: "Argent", pct: 26, bar: "[&_[data-slot=progress-indicator]]:bg-emerald-500", dot: "bg-emerald-500" },
-              { label: "Or & Platine", pct: 17, bar: "[&_[data-slot=progress-indicator]]:bg-amber-500", dot: "bg-amber-500" },
-            ].map((r) => (
+            {stats.repartition.map((r) => (
               <div key={r.label}>
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
@@ -498,6 +550,8 @@ export default function ClientsPage() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
