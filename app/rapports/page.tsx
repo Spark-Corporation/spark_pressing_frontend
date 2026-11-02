@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Banknote,
@@ -20,6 +20,12 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  exportReportsAction,
+  getReportsOverviewAction,
+} from "@/actions/AdminAction";
+import { handleApiAction } from "@/functions/handleResponseApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,51 +43,228 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AGENCES_PERF, CA_JOURS, PANIER_JOURS, VENTES_JOURS } from "./data";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { downloadBase64 } from "./data";
+import type {
+  ReportsExportFile,
+  ReportsOverviewData,
+  ReportsOverviewParams,
+  ReportsPreset,
+} from "./types";
 
 type Metrique = "ca" | "ventes" | "panier";
 
-const kpis = [
-  { label: "Chiffre d'affaires", value: "18 642 500 FCFA", sub: "+12,4 % vs août", icon: Banknote, iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Ventes", value: "1 284", sub: "+5,7 % • panier 14 519", icon: ShoppingBag, iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Remises", value: "428 300 FCFA", sub: "2,3 % du CA", icon: CircleDollarSign, iconBg: "bg-amber-50 text-amber-600" },
-  { label: "Impayés", value: "1 176 000 FCFA", sub: "−6,1 % vs août", icon: TriangleAlert, iconBg: "bg-red-50 text-red-500" },
+const fmt = (n: number | null | undefined) => new Intl.NumberFormat("fr-FR").format(n ?? 0);
+const fmtMoney = (n: number | null | undefined) => `${fmt(n)} FCFA`;
+const fmtPct = (n: number | null | undefined) =>
+  `${(n ?? 0) > 0 ? "+" : ""}${(n ?? 0).toLocaleString("fr-FR")} %`;
+const fmtM = (n: number | null | undefined) =>
+  `${((n ?? 0) / 1_000_000).toLocaleString("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} M`;
+
+const DATE_LABEL = { day: "numeric", month: "short", year: "numeric" } as const;
+
+const PRESETS: { value: ReportsPreset; label: string }[] = [
+  { value: "today", label: "Aujourd'hui" },
+  { value: "7d", label: "7 jours" },
+  { value: "30d", label: "30 jours" },
 ];
 
-const DATASETS: Record<Metrique, { label: string; bars: { v: number; label: string }[] }> = {
-  ca: { label: "CA quotidien en milliers de FCFA", bars: CA_JOURS },
-  ventes: { label: "Ventes quotidiennes", bars: VENTES_JOURS },
-  panier: { label: "Panier moyen en milliers de FCFA", bars: PANIER_JOURS },
+const METRIQUES: [Metrique, string][] = [
+  ["ca", "Chiffre d'affaires"],
+  ["ventes", "Ventes"],
+  ["panier", "Panier moyen"],
+];
+
+const DONUT_COLORS = [
+  { cls: "stroke-emerald-500", dot: "bg-emerald-500" },
+  { cls: "stroke-secondary", dot: "bg-secondary" },
+  { cls: "stroke-slate-400", dot: "bg-slate-400" },
+  { cls: "stroke-slate-200", dot: "bg-slate-200" },
+  { cls: "stroke-sky-500", dot: "bg-sky-500" },
+];
+
+const REPORT_ICONS: Record<string, typeof FileText> = {
+  daily: FileText,
+  cashiers: Users,
+  unpaid: ReceiptText,
+  loyalty: Heart,
+  cash: Wallet,
+  agencies: Scale,
 };
-
-const DONUT = [
-  { label: "Mobile Money", pct: 46, cls: "stroke-emerald-500", dot: "bg-emerald-500", offset: 25 },
-  { label: "Espèces", pct: 31, cls: "stroke-secondary", dot: "bg-secondary", offset: -21 },
-  { label: "Carte", pct: 18, cls: "stroke-slate-400", dot: "bg-slate-400", offset: -52 },
-  { label: "Virement", pct: 5, cls: "stroke-slate-200", dot: "bg-slate-200", offset: -70 },
-];
-
-const rapportsDetail = [
-  ["Bilan journalier", "Recettes, caisse et écarts", "bilan", FileText],
-  ["Performance caissiers", "Productivité et remises", "", Users],
-  ["Impayés clients", "Soldes et relances", "", ReceiptText],
-  ["Fidélité", "Attention valeur", "", Heart],
-  ["Flux de caisse", "Historique et écarts", "", Wallet],
-  ["Comparaison agences", "Multi-agences et écarts", "", Scale],
-] as const;
 
 export default function RapportsPage() {
   const { updatePath } = useGlobalData();
-  const [periode, setPeriode] = useState("01 – 28 septembre 2026");
+  const { logout, setLoading } = useAuth();
+  const [data, setData] = useState<ReportsOverviewData | null>(null);
+  const [loading, setLoadingState] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [preset, setPreset] = useState<ReportsPreset>("30d");
   const [agence, setAgence] = useState("all");
   const [comparaison, setComparaison] = useState("vs période précédente");
-  const [plage, setPlage] = useState("30 jours");
   const [metrique, setMetrique] = useState<Metrique>("ca");
 
-  const bars = DATASETS[metrique].bars;
+  const loadOverview = useCallback(() => {
+    void handleApiAction({
+      action: getReportsOverviewAction,
+      params: { preset: preset, agency_id: agence } as ReportsOverviewParams,
+      setLoading: setLoadingState,
+      showErrorToast: false,
+      logout,
+      onSuccess: (res) => {
+        setData(res as ReportsOverviewData);
+        setLoadError(null);
+      },
+      onError: setLoadError,
+    });
+  }, [preset, agence, logout]);
+
+  useEffect(() => {
+    loadOverview();
+  }, [loadOverview]);
+
+  const buildQuery = useCallback(
+    (): ReportsOverviewParams => ({
+      preset: preset,
+      agency_id: agence !== "all" ? agence : undefined,
+    }),
+    [preset, agence],
+  );
+
+  const handleExport = useCallback(
+    (format: "csv" | "pdf") => {
+      void handleApiAction({
+        action: (p?: { format: "csv" | "pdf"; query: ReportsOverviewParams }) =>
+          exportReportsAction("/reports/overview", p?.format ?? format, p?.query),
+        params: { format, query: buildQuery() },
+        setLoading,
+        logout,
+        showToast: false,
+        onSuccess: (res: ReportsExportFile) => {
+          downloadBase64(res.base64, res.mime, res.filename);
+          toast.success("Export téléchargé", {
+            description: `Le rapport au format ${format.toUpperCase()} est prêt.`,
+          });
+        },
+      });
+    },
+    [buildQuery, setLoading, logout],
+  );
+
+  const periodeLabel = useMemo(() => {
+    if (!data) return loading ? "Chargement…" : "—";
+    const from = new Date(`${data.period.from}T12:00:00`);
+    const to = new Date(`${data.period.to}T12:00:00`);
+    return `${from.toLocaleDateString("fr-FR", DATE_LABEL)} – ${to.toLocaleDateString("fr-FR", DATE_LABEL)}`;
+  }, [data, loading]);
+
+  const kpis = useMemo(() => {
+    if (!data) {
+      const value = loading ? "Chargement…" : "—";
+      const sub = loadError ? "Données indisponibles" : " ";
+      return [
+        { label: "Chiffre d'affaires", value, sub, icon: Banknote, iconBg: "bg-stone-100 text-stone-500" },
+        { label: "Ventes", value, sub, icon: ShoppingBag, iconBg: "bg-stone-100 text-stone-500" },
+        { label: "Remises", value, sub, icon: CircleDollarSign, iconBg: "bg-amber-50 text-amber-600" },
+        { label: "Impayés", value, sub, icon: TriangleAlert, iconBg: "bg-red-50 text-red-500" },
+      ];
+    }
+    const k = data.kpis;
+    return [
+      {
+        label: "Chiffre d'affaires",
+        value: fmtMoney(k.revenue.value),
+        sub: `${fmtPct(k.revenue.delta_percent)} vs période précédente`,
+        icon: Banknote,
+        iconBg: "bg-stone-100 text-stone-500",
+      },
+      {
+        label: "Ventes",
+        value: fmt(k.sales.value),
+        sub: `${fmtPct(k.sales.delta_percent)} • panier ${fmt(k.sales.average_basket)}`,
+        icon: ShoppingBag,
+        iconBg: "bg-stone-100 text-stone-500",
+      },
+      {
+        label: "Remises",
+        value: fmtMoney(k.discounts.value),
+        sub: `${(k.discounts.share_of_revenue ?? 0).toLocaleString("fr-FR")} % du CA`,
+        icon: CircleDollarSign,
+        iconBg: "bg-amber-50 text-amber-600",
+      },
+      {
+        label: "Impayés",
+        value: fmtMoney(k.unpaid.value),
+        sub: `${fmtPct(k.unpaid.delta_percent)} vs période précédente`,
+        icon: TriangleAlert,
+        iconBg: "bg-red-50 text-red-500",
+      },
+    ];
+  }, [data, loading, loadError]);
+
+  const bars = useMemo(() => {
+    const series = (data?.revenue_chart.series ?? []).slice(-12);
+    const get = (s: ReportsOverviewData["revenue_chart"]["series"][number]) =>
+      metrique === "ca" ? s.revenue : metrique === "ventes" ? s.sales : s.average_basket;
+    const max = Math.max(1, ...series.map(get));
+    const fmtBar = (v: number) => {
+      if (metrique === "ventes") return fmt(v);
+      if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(".", ",")}M`;
+      return `${Math.round(v / 1000)}k`;
+    };
+    return series.map((s) => {
+      const v = get(s) ?? 0;
+      return {
+        v: Math.max(2, Math.round((v / max) * 100)),
+        label: fmtBar(v),
+      };
+    });
+  }, [data, metrique]);
+
+  const donut = useMemo(() => {
+    const methods = data?.payments.methods ?? [];
+    return methods.map((m, i) => {
+      const cumulative = methods
+        .slice(0, i)
+        .reduce((total, method) => total + method.percent, 0);
+      const offset = 25 - cumulative;
+      return { ...m, ...DONUT_COLORS[i % DONUT_COLORS.length], offset };
+    });
+  }, [data]);
+
+  const agencesRows = useMemo(
+    () =>
+      (data?.agencies ?? []).map((a) => ({
+        id: a.agency_id,
+        nom: a.name,
+        ca: fmtMoney(a.revenue),
+        ventes: a.sales,
+        panier: fmtMoney(a.average_basket),
+        evolution: fmtPct(a.delta_percent),
+        up: (a.delta_percent ?? 0) >= 0,
+      })),
+    [data],
+  );
 
   return (
     <div className="space-y-5">
+      {loadError && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600">
+          <TriangleAlert className="size-4 shrink-0" />
+          <p className="flex-1">{loadError}</p>
+          <Button size="sm" variant="outline" className="text-[11px] font-bold" onClick={loadOverview}>
+            Réessayer
+          </Button>
+        </div>
+      )}
+
       {/* En-tête */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-xl text-[13px] text-muted-foreground">
@@ -97,14 +280,24 @@ export default function RapportsPage() {
             <Clock className="size-3.5" />
             Programmer
           </Button>
-          <Button
-            size="lg"
-            className="gap-1.5 px-3 text-xs font-bold"
-            onClick={() => toast.success("Export lancé", { description: "CSV / Excel / PDF en cours de génération." })}
-          >
-            <Download className="size-4" />
-            Exporter CSV / Excel / PDF
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button size="lg" className="gap-1.5 px-3 text-xs font-bold">
+                  <Download className="size-4" />
+                  Exporter CSV / PDF
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem className="text-xs" onClick={() => handleExport("csv")}>
+                Exporter CSV / Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-xs" onClick={() => handleExport("pdf")}>
+                Exporter PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -112,13 +305,16 @@ export default function RapportsPage() {
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-white p-3">
         <div className="min-w-40 flex-1">
           <p className="mb-1 text-[10px] font-bold text-muted-foreground">Période</p>
-          <Select value={periode} onValueChange={(v) => setPeriode(v ?? periode)}>
+          <Select value={preset} onValueChange={(v) => setPreset((v as ReportsPreset) ?? preset)}>
             <SelectTrigger className="w-full text-xs data-[size=default]:h-9">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="01 – 28 septembre 2026">01 – 28 septembre 2026</SelectItem>
-              <SelectItem value="01 – 31 août 2026">01 – 31 août 2026</SelectItem>
+              {PRESETS.map((p) => (
+                <SelectItem key={p.value} value={p.value}>
+                  {p.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -130,9 +326,9 @@ export default function RapportsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Toutes les agences</SelectItem>
-              {["Bingerville", "Cocody", "Plateau", "Marcory"].map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
+              {(data?.agencies ?? []).map((a) => (
+                <SelectItem key={a.agency_id} value={String(a.agency_id)}>
+                  {a.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -151,21 +347,22 @@ export default function RapportsPage() {
           </Select>
         </div>
         <div className="flex items-end gap-1.5 pt-5">
-          {["Aujourd'hui", "7 jours", "30 jours"].map((p) => (
+          {PRESETS.map((p) => (
             <Button
-              key={p}
-              variant={plage === p ? "default" : "outline"}
+              key={p.value}
+              variant={preset === p.value ? "default" : "outline"}
               size="sm"
-              onClick={() => setPlage(p)}
+              onClick={() => setPreset(p.value)}
               className="h-9 px-3 text-[11px] font-bold"
             >
-              {p}
+              {p.label}
             </Button>
           ))}
           <Button
             size="sm"
             className="h-9 px-4 text-[11px] font-bold"
-            onClick={() => toast.success("Filtres appliqués", { description: `${periode} • ${plage}.` })}
+            onClick={loadOverview}
+            disabled={loading}
           >
             Appliquer
           </Button>
@@ -194,20 +391,14 @@ export default function RapportsPage() {
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h2 className="text-sm font-bold">Évolution du chiffre d&apos;affaires</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{DATASETS[metrique].label}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{periodeLabel}</p>
             </div>
             <Badge variant="outline" className="border-0 bg-emerald-50 text-[10px] font-bold text-emerald-700">
-              Objectif 84%
+              Objectif {data?.revenue_chart.objective?.percent ?? "—"}%
             </Badge>
           </div>
           <div className="mt-3 flex gap-1.5">
-            {(
-              [
-                ["ca", "Chiffre d'affaires"],
-                ["ventes", "Ventes"],
-                ["panier", "Panier moyen"],
-              ] as [Metrique, string][]
-            ).map(([v, label]) => (
+            {METRIQUES.map(([v, label]) => (
               <Button
                 key={v}
                 variant={metrique === v ? "default" : "ghost"}
@@ -219,68 +410,80 @@ export default function RapportsPage() {
               </Button>
             ))}
           </div>
-          <div className="mt-3 flex h-44 items-end gap-1.5">
-            {bars.map((b, i) => (
-              <div key={i} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1 self-stretch">
-                <span className="text-[10px] font-bold text-muted-foreground">{b.label}</span>
-                <div
-                  className={cn("w-full rounded-sm", i === bars.length - 1 ? "bg-secondary" : "bg-emerald-500/70")}
-                  style={{ height: `${b.v}%` }}
-                />
-              </div>
-            ))}
-          </div>
+          {bars.length === 0 ? (
+            <div className="mt-3 flex h-44 items-center justify-center text-xs text-muted-foreground">
+              {loading ? "Chargement des données…" : "Aucune donnée pour cette période."}
+            </div>
+          ) : (
+            <div className="mt-3 flex h-44 items-end gap-1.5">
+              {bars.map((b, i) => (
+                <div key={i} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1 self-stretch">
+                  <span className="text-[10px] font-bold text-muted-foreground">{b.label}</span>
+                  <div
+                    className={cn("w-full rounded-sm", i === bars.length - 1 ? "bg-secondary" : "bg-emerald-500/70")}
+                    style={{ height: `${b.v}%` }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-emerald-500" /> Période actuelle</span>
-            <span className="font-bold text-foreground">18,64 M</span>
+            <span className="font-bold text-foreground">{fmtM(data?.revenue_chart.totals.current)}</span>
             <span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-muted-foreground/40" /> Précédente</span>
-            <span className="font-bold text-foreground">16,58 M</span>
-            <span className="ml-auto">Projection <span className="font-bold text-foreground">20,1 M</span></span>
+            <span className="font-bold text-foreground">{fmtM(data?.revenue_chart.totals.previous)}</span>
+            <span className="ml-auto">Projection <span className="font-bold text-foreground">{fmtM(data?.revenue_chart.totals.projection)}</span></span>
           </div>
         </div>
 
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-white p-5">
             <h2 className="text-sm font-bold">Recettes par paiement</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">17,47 M FCFA encaissés</p>
-            <div className="mt-3 flex items-center gap-4">
-              <svg viewBox="0 0 36 36" className="size-28 shrink-0" role="img" aria-label="Répartition des paiements">
-                <circle cx="18" cy="18" r="15.9155" fill="none" strokeWidth="4.5" className="stroke-muted" />
-                {DONUT.map((s) => (
-                  <circle
-                    key={s.label}
-                    cx="18"
-                    cy="18"
-                    r="15.9155"
-                    fill="none"
-                    strokeWidth="4.5"
-                    strokeDasharray={`${s.pct} ${100 - s.pct}`}
-                    strokeDashoffset={s.offset}
-                    strokeLinecap="butt"
-                    className={s.cls}
-                  />
-                ))}
-              </svg>
-              <div className="min-w-0 flex-1 space-y-1.5 text-xs">
-                {DONUT.map((s) => (
-                  <p key={s.label} className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-muted-foreground">
-                      <span className={cn("size-1.5 rounded-full", s.dot)} />
-                      {s.label}
-                    </span>
-                    <span className="font-bold">{s.pct}%</span>
-                  </p>
-                ))}
+            <p className="mt-0.5 text-xs text-muted-foreground">{fmtMoney(data?.payments.total)} encaissés</p>
+            {donut.length === 0 ? (
+              <div className="mt-3 flex h-28 items-center justify-center text-xs text-muted-foreground">
+                {loading ? "Chargement des données…" : "Aucun encaissement sur la période."}
               </div>
-            </div>
+            ) : (
+              <div className="mt-3 flex items-center gap-4">
+                <svg viewBox="0 0 36 36" className="size-28 shrink-0" role="img" aria-label="Répartition des paiements">
+                  <circle cx="18" cy="18" r="15.9155" fill="none" strokeWidth="4.5" className="stroke-muted" />
+                  {donut.map((s) => (
+                    <circle
+                      key={s.code}
+                      cx="18"
+                      cy="18"
+                      r="15.9155"
+                      fill="none"
+                      strokeWidth="4.5"
+                      strokeDasharray={`${s.percent} ${100 - s.percent}`}
+                      strokeDashoffset={s.offset}
+                      strokeLinecap="butt"
+                      className={s.cls}
+                    />
+                  ))}
+                </svg>
+                <div className="min-w-0 flex-1 space-y-1.5 text-xs">
+                  {donut.map((s) => (
+                    <p key={s.code} className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <span className={cn("size-1.5 rounded-full", s.dot)} />
+                        {s.label}
+                      </span>
+                      <span className="font-bold">{s.percent}%</span>
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-border bg-white p-5">
             <h2 className="text-sm font-bold">Mouvements hors vente</h2>
             <div className="mt-2 space-y-1.5 text-xs">
-              <p className="flex justify-between"><span className="text-muted-foreground">Dépôts</span><span className="font-bold">+940 000</span></p>
-              <p className="flex justify-between"><span className="text-muted-foreground">Retraits</span><span className="font-bold text-red-500">−612 500</span></p>
-              <p className="flex justify-between border-t border-border pt-1.5"><span className="font-bold">Solde théorique</span><span className="font-extrabold">2 847 300</span></p>
+              <p className="flex justify-between"><span className="text-muted-foreground">Dépôts</span><span className="font-bold">+{fmt(data?.non_sales_movements.cash_in)}</span></p>
+              <p className="flex justify-between"><span className="text-muted-foreground">Retraits</span><span className="font-bold text-red-500">−{fmt(data?.non_sales_movements.cash_out)}</span></p>
+              <p className="flex justify-between border-t border-border pt-1.5"><span className="font-bold">Solde théorique</span><span className="font-extrabold">{fmt(data?.non_sales_movements.theoretical_balance)}</span></p>
             </div>
           </div>
         </div>
@@ -302,11 +505,18 @@ export default function RapportsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {AGENCES_PERF.map((a) => (
-                  <TableRow key={a.nom}>
+                {agencesRows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-xs text-muted-foreground">
+                      {loading ? "Chargement des données…" : "Aucune agence sur la période."}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {agencesRows.map((a) => (
+                  <TableRow key={a.id}>
                     <TableCell className="text-xs font-bold">{a.nom}</TableCell>
                     <TableCell className="text-xs">{a.ca}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{a.ventes}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{fmt(a.ventes)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{a.panier}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={cn("border-0 text-[10px] font-bold", a.up ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-500")}>
@@ -319,7 +529,7 @@ export default function RapportsPage() {
             </Table>
           </div>
           <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>4 résultats</span>
+            <span>{agencesRows.length} résultats</span>
             <span className="flex items-center gap-1">
               <Button variant="default" size="icon-sm" className="text-[11px] font-bold">1</Button>
               <Button variant="outline" size="icon-sm" className="text-[11px] font-bold" onClick={() => toast.info("Page 2", { description: "Données consolidées suivantes." })}>2</Button>
@@ -330,12 +540,12 @@ export default function RapportsPage() {
 
         <div className="rounded-xl border border-border bg-white p-5">
           <h2 className="text-sm font-bold">Programme fidélité</h2>
-          <p className="mt-2 text-2xl font-extrabold">2 468</p>
+          <p className="mt-2 text-2xl font-extrabold">{fmt(data?.loyalty.active_members)}</p>
           <p className="text-[11px] text-muted-foreground">membres actifs</p>
           <div className="mt-3 space-y-1.5 text-xs">
-            <p className="flex justify-between"><span className="text-muted-foreground">Points émis</span><span className="font-bold">184 200</span></p>
-            <p className="flex justify-between"><span className="text-muted-foreground">Points utilisés</span><span className="font-bold">96 450</span></p>
-            <p className="flex justify-between"><span className="text-muted-foreground">CA membres</span><span className="font-bold">61%</span></p>
+            <p className="flex justify-between"><span className="text-muted-foreground">Points émis</span><span className="font-bold">{fmt(data?.loyalty.points_issued)}</span></p>
+            <p className="flex justify-between"><span className="text-muted-foreground">Points utilisés</span><span className="font-bold">{fmt(data?.loyalty.points_used)}</span></p>
+            <p className="flex justify-between"><span className="text-muted-foreground">Rétention</span><span className="font-bold">{fmt(data?.loyalty.retention_percent)}%</span></p>
           </div>
         </div>
       </div>
@@ -345,34 +555,37 @@ export default function RapportsPage() {
         <h2 className="text-sm font-bold">Rapports détaillés</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">Accès rapide et exportable</p>
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {rapportsDetail.map(([title, sub, href, Icon]) => (
-            <button
-              key={title}
-              type="button"
-              onClick={() =>
-                href
-                  ? updatePath(`/rapports/${href}`)
-                  : toast.info(title, { description: "Rapport disponible prochainement en export." })
-              }
-              className="flex items-center gap-2.5 rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
-            >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-                <Icon className="size-4 text-muted-foreground" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-bold">{title}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{sub}</span>
-              </span>
-              <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
-            </button>
-          ))}
+          {(data?.reports ?? []).map((r) => {
+            const Icon = REPORT_ICONS[r.code] ?? FileText;
+            return (
+              <button
+                key={r.code}
+                type="button"
+                onClick={() =>
+                  r.code === "daily"
+                    ? updatePath("/rapports/bilan")
+                    : toast.info(r.label, { description: "Rapport disponible prochainement en export." })
+                }
+                className="flex items-center gap-2.5 rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60">
+                  <Icon className="size-4 text-muted-foreground" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-bold">{r.label}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{r.detail}</span>
+                </span>
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Lien écrans restants */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground">
         <CalendarDays className="size-4 shrink-0" />
-        <p className="flex-1">Dernier écran restant du sidebar : Audit & logs.</p>
+        <p className="flex-1">Dernier écran restant du sidebar : Audit &amp; logs.</p>
       </div>
     </div>
   );

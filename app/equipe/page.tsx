@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Bell,
   Check,
   Download,
@@ -18,6 +19,12 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  getTeamOverviewAction,
+  getTeamUsersAction,
+} from "@/actions/AdminAction";
+import { handleApiAction } from "@/functions/handleResponseApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,24 +53,23 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  ACTIVITES_EQUIPE,
   INVITATIONS_INIT,
-  MEMBRES,
   ROLES,
   type Invitation,
-  type Membre,
 } from "./data";
+import type {
+  TeamActivityItem,
+  TeamFilterOption,
+  TeamOverviewData,
+  TeamUser,
+  TeamUsersParams,
+} from "./types";
 
 const PAGE_SIZE = 6;
 type Periode = "jour" | "semaine" | "mois";
 type Onglet = "utilisateurs" | "invitations" | "activite" | "acces";
 
-const kpis = [
-  { label: "Utilisateurs actifs", value: "38", sub: "+4 ce mois", icon: Users, iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Managers", value: "6", sub: "4 multi-agences", icon: UserPlus, iconBg: "bg-amber-50 text-amber-600" },
-  { label: "Invitations", value: "3", sub: "2 expirent bientôt", icon: Bell, iconBg: "bg-red-50 text-red-500" },
-  { label: "Connexions aujourd'hui", value: "29", sub: "76 % de l'équipe", icon: History, iconBg: "bg-stone-100 text-stone-500" },
-];
+const AGENCES_INVITE = ["Cocody Angré", "Plateau Centre", "Marcory Zone 4", "Bingerville"];
 
 const roleBadge: Record<string, string> = {
   Admin: "bg-amber-100 text-amber-700",
@@ -71,13 +77,286 @@ const roleBadge: Record<string, string> = {
   Caissier: "bg-sky-100 text-sky-700",
   Laveur: "bg-orange-100 text-orange-700",
   Classeur: "bg-slate-200/70 text-slate-600",
+  "—": "bg-muted text-muted-foreground",
 };
 
-const AGENCES_INVITE = ["Cocody Angré", "Plateau Centre", "Marcory Zone 4", "Bingerville"];
+const AVATAR_BGS = [
+  "bg-amber-100 text-amber-700",
+  "bg-slate-200 text-slate-600",
+  "bg-stone-200 text-stone-600",
+  "bg-orange-100 text-orange-700",
+  "bg-violet-100 text-violet-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-sky-100 text-sky-700",
+];
+
+/** Lit la valeur d'identification d'une option de filtre API. */
+const optionKey = (o: TeamFilterOption, i: number): string =>
+  typeof o === "string"
+    ? o
+    : String(o.value ?? o.code ?? o.id ?? o.key ?? o.name ?? o.label ?? `opt-${i}`);
+
+/** Lit le libellé affichable d'une option de filtre API. */
+const optionLabel = (o: TeamFilterOption, i: number): string =>
+  typeof o === "string" ? o : String(o.label ?? o.name ?? o.value ?? o.code ?? optionKey(o, i));
+
+const activityText = (a: TeamActivityItem): string =>
+  String(a.description ?? a.message ?? a.action ?? a.label ?? a.actor ?? a.user ?? "Activité");
+
+const activityTime = (a: TeamActivityItem): string =>
+  String(a.time ?? a.at ?? a.when ?? a.ago ?? "");
+
+const initialsFor = (name: string): string =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "??";
+
+const KPI_META = [
+  { key: "active_users", label: "Utilisateurs actifs", icon: Users, iconBg: "bg-stone-100 text-stone-500" },
+  { key: "managers", label: "Managers", icon: UserPlus, iconBg: "bg-amber-50 text-amber-600" },
+  { key: "invitations", label: "Invitations", icon: Bell, iconBg: "bg-red-50 text-red-500" },
+  { key: "connections_today", label: "Connexions aujourd'hui", icon: History, iconBg: "bg-stone-100 text-stone-500" },
+] as const;
+
+/** Onglets locaux ; apiCodes relie le code renvoyé par l'API à l'onglet affiché. */
+const TAB_CODES: { onglet: Onglet; fallbackLabel: string; apiCodes: string[] }[] = [
+  { onglet: "utilisateurs", fallbackLabel: "Utilisateurs", apiCodes: ["users"] },
+  { onglet: "invitations", fallbackLabel: "Invitations", apiCodes: ["invitations"] },
+  { onglet: "activite", fallbackLabel: "Activité récente", apiCodes: ["activite", "activity", "recent_activity"] },
+  { onglet: "acces", fallbackLabel: "Accès multi-agence", apiCodes: ["acces", "access", "multi_agency"] },
+];
+
+interface Row {
+  id: number;
+  initials: string;
+  avatarBg: string;
+  nom: string;
+  email: string;
+  phone: string | null;
+  role: string;
+  rolesLower: string[];
+  agencyId: number | null;
+  agency: string;
+  statut: "Actif" | "Inactif";
+  actif: boolean;
+}
 
 export default function EquipePage() {
   const { updatePath, setProfileUser } = useGlobalData();
-  const [membres, setMembres] = useState<Membre[]>(MEMBRES);
+  const { logout } = useAuth();
+
+  // ------------------------- Données API -------------------------
+  const [data, setData] = useState<TeamOverviewData | null>(null);
+  const [loading, setLoadingState] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [users, setUsers] = useState<TeamUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [usersError, setUsersError] = useState<string | null>(null);
+
+  const loadOverview = useCallback(() => {
+    void handleApiAction({
+      action: getTeamOverviewAction,
+      setLoading: setLoadingState,
+      showErrorToast: false,
+      logout,
+      onSuccess: (res) => {
+        setData(res as TeamOverviewData);
+        setLoadError(null);
+      },
+      onError: setLoadError,
+    });
+  }, [logout]);
+
+  const loadUsers = useCallback(() => {
+    void handleApiAction({
+      action: (p?: TeamUsersParams) => getTeamUsersAction(p),
+      params: { page: 1, per_page: 200 } as TeamUsersParams,
+      setLoading: setLoadingUsers,
+      showErrorToast: false,
+      logout,
+      onSuccess: (res) => {
+        setUsers(res.data);
+        setUsersError(null);
+      },
+      onError: setUsersError,
+    });
+  }, [logout]);
+
+  useEffect(() => {
+    loadOverview();
+  }, [loadOverview]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  // ------------------------- Filtres depuis l'API -------------------------
+  const agencyItems = useMemo<{ value: string; label: string }[]>(
+    () =>
+      (data?.filters?.agencies ?? []).map((o, i) => ({
+        value:
+          typeof o === "string"
+            ? o
+            : String(o.id ?? o.value ?? o.code ?? o.key ?? o.name ?? o.label ?? `opt-${i}`),
+        label: optionLabel(o, i),
+      })),
+    [data],
+  );
+
+  const roleItems = useMemo<{ value: string; label: string }[]>(
+    () =>
+      data?.filters?.roles?.length
+        ? data.filters.roles.map((o, i) => ({
+            value:
+              typeof o === "string"
+                ? o
+                : String(o.code ?? o.value ?? o.key ?? o.id ?? o.name ?? o.label ?? `opt-${i}`),
+            label: optionLabel(o, i),
+          }))
+        : ROLES.map((r) => ({ value: r, label: r })),
+    [data],
+  );
+
+  const statutItems = useMemo<{ value: string; label: string }[]>(
+    () =>
+      data?.filters?.statuses?.length
+        ? data.filters.statuses.map((o, i) => ({ value: optionKey(o, i), label: optionLabel(o, i) }))
+        : [
+            { value: "Actif", label: "Actif" },
+            { value: "Inactif", label: "Inactif" },
+          ],
+    [data],
+  );
+
+  /** id d'agence -> libellé réel (ex. 1 -> "Cocody Angré"). */
+  const agencyLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    (data?.filters?.agencies ?? []).forEach((o) => {
+      if (typeof o !== "string") {
+        const label = o.name ?? o.label;
+        if (label) {
+          [o.id, o.value, o.code, o.key].forEach((key) => {
+            if (key != null) map.set(String(key), String(label));
+          });
+        }
+      }
+    });
+    return map;
+  }, [data]);
+
+  /** code de rôle (ex. "caissier") -> libellé réel (ex. "Caissier"). */
+  const roleLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    (data?.filters?.roles ?? []).forEach((o, i) => {
+      if (typeof o !== "string") {
+        const k = String(o.code ?? o.value ?? o.key ?? o.id ?? "").toLowerCase();
+        const l = optionLabel(o, i);
+        if (k && l) map.set(k, l);
+      }
+    });
+    return map;
+  }, [data]);
+
+  const roleLabelFor = useCallback(
+    (code: string) =>
+      roleLabels.get(code.toLowerCase()) ??
+      (code ? code.charAt(0).toUpperCase() + code.slice(1) : "—"),
+    [roleLabels],
+  );
+
+  // ------------------------- Onglets -------------------------
+  const tabItems = useMemo(() => {
+    const base = TAB_CODES.map((t) => {
+      const api = data?.tabs?.find((x) => t.apiCodes.includes(x.code));
+      return { onglet: t.onglet as Onglet | null, label: api?.label ?? t.fallbackLabel, count: api?.count };
+    });
+    (data?.tabs ?? []).forEach((t) => {
+      if (!TAB_CODES.some((b) => b.apiCodes.includes(t.code))) {
+        base.push({ onglet: null, label: t.label, count: t.count });
+      }
+    });
+    return base;
+  }, [data]);
+
+  // ------------------------- KPIs -------------------------
+  const kpiCards = useMemo(() => {
+    const kpisData = data?.kpis;
+    return KPI_META.map((k) => {
+      if (loading) return { ...k, value: "Chargement…", sub: " " };
+      let value = "—";
+      let sub = loadError ? "Données indisponibles" : " ";
+      if (kpisData) {
+        switch (k.key) {
+          case "active_users": {
+            const d = kpisData.active_users;
+            value = String(d?.value ?? "—");
+            sub = d?.new_this_month ? `+${d.new_this_month} ce mois` : "—";
+            break;
+          }
+          case "managers": {
+            const d = kpisData.managers;
+            value = String(d?.value ?? "—");
+            sub = d?.multi_agency
+              ? `${d.multi_agency} multi-agence${d.multi_agency > 1 ? "s" : ""}`
+              : "—";
+            break;
+          }
+          case "invitations": {
+            const d = kpisData.invitations;
+            value = String(d?.value ?? "—");
+            sub = `${d?.expiring_soon ?? 0} expirent bientôt`;
+            break;
+          }
+          case "connections_today": {
+            const d = kpisData.connections_today;
+            value = String(d?.value ?? "—");
+            sub = `${d?.team_percent ?? 0} % de l'équipe`;
+            break;
+          }
+        }
+      }
+      return { ...k, value, sub };
+    });
+  }, [data, loading, loadError]);
+
+  // ------------------------- Activité récente -------------------------
+  const activites = useMemo<[string, string][]>(() => {
+    const items = data?.recent_activity ?? [];
+    return items.map((a) => [activityText(a), activityTime(a)]);
+  }, [data]);
+
+  // ============================================================
+  // Annuaire : lignes construites depuis GET /team/users
+  // ============================================================
+  const rowsAll = useMemo<Row[]>(
+    () =>
+      users.map((u, idx) => {
+        return {
+          id: u.id,
+          initials: initialsFor(u.fullname ?? ""),
+          avatarBg: AVATAR_BGS[Number(u.id) % AVATAR_BGS.length] ?? AVATAR_BGS[idx % AVATAR_BGS.length],
+          nom: u.fullname ?? "Sans nom",
+          email: u.email ?? "—",
+          phone: u.phone_number,
+          role: u.roles?.length ? roleLabelFor(u.roles[0]) : "—",
+          rolesLower: (u.roles ?? []).map((r) => r.toLowerCase()),
+          agencyId: u.agency_id,
+          agency:
+            u.agency_id != null
+              ? agencyLabels.get(String(u.agency_id)) ?? `Agence ${u.agency_id}`
+              : "Toutes les agences",
+          statut: u.status ? "Actif" : "Inactif",
+          actif: Boolean(u.status),
+        };
+      }),
+    [users, agencyLabels, roleLabelFor],
+  );
+
+  // ------------------------- État local UI -------------------------
   const [invitations, setInvitations] = useState<Invitation[]>(INVITATIONS_INIT);
   const [onglet, setOnglet] = useState<Onglet>("utilisateurs");
   const [search, setSearch] = useState("");
@@ -92,18 +371,30 @@ export default function EquipePage() {
   const [inviteMfa, setInviteMfa] = useState(false);
   const inviteRef = useRef<HTMLDivElement>(null);
 
+  const inviteRoleOption =
+    roleItems.find((r) => r.value === inviteRole) ??
+    roleItems.find((r) => r.value.toLowerCase() === "manager" || r.label.toLowerCase() === "manager") ??
+    roleItems[0];
+  const selectedInviteRole = inviteRoleOption?.value ?? inviteRole;
+  const selectedInviteRoleLabel = inviteRoleOption?.label ?? selectedInviteRole;
+
+  // Le endpoint ne documente pas les filtres : filtrage appliqué côté client,
+  // avec les valeurs réelles renvoyées par /team/overview.filters.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return membres.filter((m) => {
-      if (periode === "jour" && m.daysAgo > 1) return false;
-      if (periode === "semaine" && m.daysAgo > 7) return false;
-      if (agency !== "all" && !m.agency.includes(agency) && m.agency !== "Toutes les agences") return false;
-      if (role !== "all" && m.role !== role) return false;
-      if (statut !== "all" && m.statut !== statut) return false;
+    return rowsAll.filter((m) => {
+      if (agency !== "all" && String(m.agencyId) !== agency && m.agency !== agency) return false;
+      if (role !== "all" && !m.rolesLower.includes(role.toLowerCase()) && m.role !== role) return false;
+      if (statut !== "all") {
+        const s = statut.toLowerCase();
+        const expected = s.startsWith("in") ? false : s.startsWith("act") ? true : null;
+        if (expected !== null && m.actif !== expected) return false;
+        if (expected === null && m.statut.toLowerCase() !== s) return false;
+      }
       if (q && !`${m.nom} ${m.email} ${m.agency}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [membres, search, periode, agency, role, statut]);
+  }, [rowsAll, search, agency, role, statut]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -114,6 +405,10 @@ export default function EquipePage() {
   const toggleInviteAgence = (a: string) =>
     setInviteAgences((l) => (l.includes(a) ? l.filter((x) => x !== a) : [...l, a]));
 
+  const agenciesForInvite: string[] = agencyItems.length
+    ? agencyItems.map((a) => a.label)
+    : AGENCES_INVITE;
+
   const handleInvite = (direct: boolean) => {
     if (!/.+@.+\..+/.test(inviteEmail.trim())) {
       toast.error("E-mail invalide", { description: "Saisissez une adresse professionnelle valide." });
@@ -121,14 +416,22 @@ export default function EquipePage() {
     }
     if (direct) {
       const nom = inviteEmail.split("@")[0].split(/[._-]/).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
-      const initials = nom.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
-      setMembres((m) => [
-        ...m,
-        { id: `m${Date.now()}`, initials, nom, email: inviteEmail.trim(), role: inviteRole, agency: inviteAgences[0] ?? "Bingerville", statut: "Actif", connexion: "Jamais connecté", daysAgo: 99, avatarBg: "bg-slate-200 text-slate-600" },
+      setUsers((l) => [
+        ...l,
+        {
+          id: Date.now(),
+          fullname: nom,
+          email: inviteEmail.trim(),
+          phone_number: null,
+          pressing_id: null,
+          agency_id: null,
+          status: true,
+          roles: [selectedInviteRole.toLowerCase() || "caissier"],
+        },
       ]);
-      toast.success("Compte créé", { description: `${nom} • ${inviteRole}.` });
+      toast.success("Compte créé", { description: `${nom} • ${selectedInviteRoleLabel}.` });
     } else {
-      setInvitations((l) => [...l, { id: `i${Date.now()}`, email: inviteEmail.trim(), role: inviteRole, expires: "Expire dans 3 j" }]);
+      setInvitations((l) => [...l, { id: `i${Date.now()}`, email: inviteEmail.trim(), role: selectedInviteRoleLabel, expires: "Expire dans 3 j" }]);
       toast.success("Invitation envoyée", { description: `${inviteEmail.trim()} • lien valable 72 h.` });
     }
     setInviteEmail("");
@@ -136,6 +439,16 @@ export default function EquipePage() {
 
   return (
     <div className="space-y-5">
+      {loadError && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600">
+          <AlertTriangle className="size-4 shrink-0" />
+          <p className="flex-1">{loadError}</p>
+          <Button size="sm" variant="outline" className="text-[11px] font-bold" onClick={loadOverview}>
+            Réessayer
+          </Button>
+        </div>
+      )}
+
       {/* En-tête */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-xl text-[13px] text-muted-foreground">
@@ -173,8 +486,8 @@ export default function EquipePage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((k) => (
-          <div key={k.label} className="rounded-xl border border-border bg-white p-4">
+        {kpiCards.map((k) => (
+          <div key={k.key} className="rounded-xl border border-border bg-white p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground">{k.label}</p>
               <span className={cn("flex size-8 items-center justify-center rounded-lg", k.iconBg)}>
@@ -195,28 +508,39 @@ export default function EquipePage() {
               <div>
                 <h2 className="text-sm font-bold">Annuaire de l&apos;équipe</h2>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(
-                    [
-                      ["utilisateurs", "Utilisateurs"],
-                      ["invitations", "Invitations"],
-                      ["activite", "Activité récente"],
-                      ["acces", "Accès multi-agence"],
-                    ] as [Onglet, string][]
-                  ).map(([v, label]) => (
+                  {tabItems.map((t) => (
                     <Button
-                      key={v}
-                      variant={onglet === v ? "default" : "ghost"}
+                      key={t.label}
+                      variant={t.onglet === onglet ? "default" : "ghost"}
                       size="sm"
-                      onClick={() => setOnglet(v)}
+                      onClick={() => {
+                        if (t.onglet) {
+                          setOnglet(t.onglet);
+                        } else {
+                          toast.info("Prochainement", {
+                            description: `L'onglet « ${t.label} » sera disponible prochainement.`,
+                          });
+                        }
+                      }}
                       className="h-7 rounded-full px-3 text-[11px] font-bold"
                     >
-                      {label}
+                      {t.label}
+                      {t.count !== undefined && (
+                        <span
+                          className={cn(
+                            "ml-1 text-[10px] font-semibold",
+                            t.onglet === onglet ? "opacity-70" : "text-muted-foreground",
+                          )}
+                        >
+                          {t.count}
+                        </span>
+                      )}
                     </Button>
                   ))}
                 </div>
               </div>
               <Badge variant="outline" className="gap-1 border-0 bg-amber-100 text-[10px] font-bold text-amber-700">
-                MFA • 66%
+                MFA • {data ? `${data.mfa.percent}%` : "…"}
               </Badge>
             </div>
 
@@ -241,9 +565,9 @@ export default function EquipePage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Toutes les agences</SelectItem>
-                      {["Cocody", "Plateau", "Marcory", "Bingerville", "Atelier central"].map((a) => (
-                        <SelectItem key={a} value={a}>
-                          {a}
+                      {agencyItems.map((a) => (
+                        <SelectItem key={a.value} value={a.value}>
+                          {a.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -254,9 +578,9 @@ export default function EquipePage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Tous les rôles</SelectItem>
-                      {ROLES.map((r) => (
-                        <SelectItem key={r} value={r}>
-                          {r}
+                      {roleItems.map((r) => (
+                        <SelectItem key={r.value} value={r.value}>
+                          {r.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -267,8 +591,11 @@ export default function EquipePage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Tous les statuts</SelectItem>
-                      <SelectItem value="Actif">Actif</SelectItem>
-                      <SelectItem value="Inactif">Inactif</SelectItem>
+                      {statutItems.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>
+                          {s.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -323,7 +650,7 @@ export default function EquipePage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className={cn("border-0 text-[10px] font-semibold", roleBadge[m.role])}>
+                            <Badge variant="outline" className={cn("border-0 text-[10px] font-semibold", roleBadge[m.role] ?? "bg-muted text-muted-foreground")}>
                               {m.role}
                             </Badge>
                           </TableCell>
@@ -340,7 +667,9 @@ export default function EquipePage() {
                               {m.statut}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{m.connexion}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            —
+                          </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
                               <Button
@@ -352,7 +681,7 @@ export default function EquipePage() {
                               >
                                 <Pencil className="size-3.5" />
                               </Button>
-                                <Button
+                              <Button
                                 variant="ghost"
                                 size="icon-sm"
                                 title="Profil et sécurité"
@@ -374,12 +703,16 @@ export default function EquipePage() {
                                   }
                                 />
                                 <DropdownMenuContent align="end" className="w-48">
-                                  <DropdownMenuItem onClick={() => toast.info(m.nom, { description: `${m.email}.` })}>
-                                    Voir la fiche
-                                  </DropdownMenuItem>
+                                  {(m.email !== "—" || m.phone) && (
+                                    <DropdownMenuItem onClick={() => toast.info(m.nom, { description: `${m.email !== "—" ? m.email : m.phone ?? ""}.` })}>
+                                      Voir la fiche
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuItem
                                     onClick={() => {
-                                      setMembres((list) => list.map((x) => (x.id === m.id ? { ...x, statut: x.statut === "Actif" ? "Inactif" : "Actif" } : x)));
+                                      setUsers((list) =>
+                                        list.map((x) => (x.id === m.id ? { ...x, status: !x.status } : x)),
+                                      );
                                       toast.success(m.statut === "Actif" ? "Compte désactivé" : "Compte réactivé", { description: m.nom });
                                     }}
                                   >
@@ -394,7 +727,7 @@ export default function EquipePage() {
                       {rows.length === 0 && (
                         <TableRow className="hover:bg-transparent">
                           <TableCell colSpan={6} className="py-10 text-center text-[13px] text-muted-foreground">
-                            Aucun membre ne correspond à ces critères.
+                            {loadingUsers ? "Chargement des utilisateurs…" : usersError ?? "Aucun membre ne correspond à ces critères."}
                           </TableCell>
                         </TableRow>
                       )}
@@ -445,13 +778,18 @@ export default function EquipePage() {
 
             {onglet === "activite" && (
               <div className="mt-3 space-y-2.5">
-                {ACTIVITES_EQUIPE.map(([texte, quand], i) => (
+                {activites.map(([texte, quand], i) => (
                   <div key={i} className="flex items-center gap-2.5 text-xs">
                     <History className="size-3.5 shrink-0 text-muted-foreground" />
                     <p className="min-w-0 flex-1 truncate">{texte}</p>
                     <span className="shrink-0 text-[11px] text-muted-foreground">{quand}</span>
                   </div>
                 ))}
+                {activites.length === 0 && (
+                  <p className="py-6 text-center text-[13px] text-muted-foreground">
+                    Aucune activité récente.
+                  </p>
+                )}
               </div>
             )}
 
@@ -465,20 +803,25 @@ export default function EquipePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {membres.slice(0, 8).map((m) => (
+                    {rowsAll.slice(0, 8).map((m) => (
                       <TableRow key={m.id}>
                         <TableCell className="text-xs font-semibold">{m.nom}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {(m.agency === "Toutes les agences" ? ["Toutes"] : m.agency.split(" + ")).map((a) => (
-                              <Badge key={a} variant="outline" className="border-0 bg-muted text-[10px] font-semibold text-foreground">
-                                {a === "Toutes" ? "Toutes les agences" : a}
-                              </Badge>
-                            ))}
+                            <Badge variant="outline" className="border-0 bg-muted text-[10px] font-semibold text-foreground">
+                              {m.agency}
+                            </Badge>
                           </div>
                         </TableCell>
                       </TableRow>
                     ))}
+                    {rowsAll.length === 0 && (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={2} className="py-10 text-center text-[13px] text-muted-foreground">
+                          {loadingUsers ? "Chargement des utilisateurs…" : usersError ?? "Aucun utilisateur."}
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -487,16 +830,21 @@ export default function EquipePage() {
 
           {/* Activité récente */}
           <div className="rounded-xl border border-border bg-white p-4 sm:p-5">
-            <h2 className="text-sm font-bold">Activité récente</h2>
+            <h2 className="text-sm font-bold">Activité sensible</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">Dernières actions des 24 h</p>
             <div className="mt-3 space-y-2.5">
-              {ACTIVITES_EQUIPE.slice(0, 4).map(([texte, quand], i) => (
+              {activites.slice(0, 4).map(([texte, quand], i) => (
                 <div key={i} className="flex items-center gap-2.5 text-xs">
                   <History className="size-3.5 shrink-0 text-muted-foreground" />
                   <p className="min-w-0 flex-1 truncate">{texte}</p>
                   <span className="shrink-0 text-[11px] text-muted-foreground">{quand}</span>
                 </div>
               ))}
+              {activites.length === 0 && (
+                <p className="py-4 text-center text-[13px] text-muted-foreground">
+                  Aucune activité sensible sur les dernières 24 h.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -512,21 +860,21 @@ export default function EquipePage() {
           <Label htmlFor="inv-role" className="mt-3 mb-1.5 text-xs font-semibold">
             Rôle
           </Label>
-          <Select value={inviteRole} onValueChange={(v) => setInviteRole(v ?? "Manager")}>
+          <Select value={selectedInviteRole} onValueChange={(v) => setInviteRole(v ?? "Manager")}>
             <SelectTrigger id="inv-role" className="w-full text-[13px] data-[size=default]:h-9">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {ROLES.map((r) => (
-                <SelectItem key={r} value={r}>
-                  {r}
+              {roleItems.map((r) => (
+                <SelectItem key={r.value} value={r.value}>
+                  {r.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <p className="mt-3 mb-1.5 text-xs font-semibold">Affectation multi-agence</p>
           <div className="space-y-1.5">
-            {AGENCES_INVITE.map((a) => (
+            {agenciesForInvite.map((a) => (
               <Label key={a} htmlFor={`inv-${a}`} className="flex cursor-pointer items-center gap-2 text-xs font-medium">
                 <Checkbox id={`inv-${a}`} checked={inviteAgences.includes(a)} onCheckedChange={() => toggleInviteAgence(a)} />
                 {a}

@@ -99,6 +99,231 @@ export interface ClientsEnvelope {
   errors: null;
 }
 
+/* ----------------------------- Articles (backend) ------------------------ */
+
+export interface ApiArticle {
+  id: number;
+  name: string;
+  description: string | null;
+  classic_price: number | null;
+  express_price: number | null;
+  repass_price: number | null;
+  classic_price_kilo: number | null;
+  express_price_kilo: number | null;
+  repass_price_kilo: number | null;
+  status: boolean;
+  code: string;
+  icon: string | null;
+  category_id: number | null;
+  category: { id: number; name: string } | null;
+  billing_mode: "piece" | "kilo" | "mixed";
+  allow_discount: boolean;
+  round_to: number | null;
+  price_editable: boolean;
+  delays: { classic: number | null; express: number | null; repass: number | null };
+  priority: string;
+  accepted_defects: string[];
+  compatible_renders: number[];
+  services: string[];
+  price_updated_at: string | null;
+  billing_mode_label: string;
+  scope: {
+    status: { code: string; label: string };
+    label: string;
+    agencies: number;
+  };
+}
+
+export interface ArticlesKpis {
+  active_articles: { value: number; new_this_month: number };
+  categories: { value: number; shared: number };
+  average_price: { value: number; delta_percent: number };
+  to_review: { value: number; rule: string };
+  updated_at: string;
+}
+
+export interface ArticlesEnvelope {
+  data: ApiArticle[];
+  meta: {
+    page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    kpis: ArticlesKpis;
+  };
+}
+
+export interface ApiArticleCategory {
+  id: number;
+  name: string;
+  icon: string | null;
+  shared: boolean;
+  sort_order: number;
+  articles_count: number;
+  active_articles_count: number;
+}
+
+export interface ArticleCategoriesEnvelope {
+  data: ApiArticleCategory[];
+}
+
+export interface ApiArticleDetail extends ApiArticle {
+  kilo_tiers: { min_kg: number; max_kg: number; classic: number; express: number }[];
+  availability: {
+    active: number;
+    total: number;
+    agencies: {
+      agency_id: number;
+      agency: string;
+      available: boolean;
+      status: { code: string; label: string };
+      price_adjust_percent: number;
+      note: string | null;
+    }[];
+  };
+  preview: {
+    title: string;
+    subtitle: string;
+    badge: string;
+    prices: { label: string; amount: number }[];
+  };
+  checks: { code: string; label: string; ok: boolean }[];
+  recommendations: { code: string; label: string }[];
+  last_modification: { by: string | null; at: string | null };
+  options: {
+    defects: { code: string; label: string }[];
+    renders: { id: number; title: string }[];
+    services: { code: string; label: string }[];
+    priorities: { code: string; label: string }[];
+  };
+}
+
+export interface ArticleDetailEnvelope {
+  data: ApiArticleDetail;
+}
+
+export interface ArticleHistoryEntry {
+  at: string;
+  article_id: number;
+  article: string;
+  action: string;
+  label: string;
+  changes: string[];
+  by: string;
+}
+
+export interface ArticlesHistoryEnvelope {
+  data: ArticleHistoryEntry[];
+}
+
+/* ----------------------------- Retrievais (backend) ------------------------ */
+
+export interface ApiRetrievalUnit {
+  id: number;
+  article_id: number | null;
+  service_id: number | null;
+  designation: string;
+  pricing_type: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  state: string | null;
+  is_express: boolean;
+  express_supplement: number;
+  color: string | null;
+  defects: { code: string; label: string }[];
+  internal_notes: string | null;
+}
+
+export interface ApiRetrievalTransaction {
+  id: number;
+  amount: number;
+  type: string;
+  payment_method: string;
+  transaction_date: string;
+}
+
+export interface ApiRetrieval {
+  id: number;
+  client_uuid: string;
+  code: string;
+  qr_token: string | null;
+  pressing_id: number;
+  agency_id: number | null;
+  currency: string;
+  client_id: number;
+  deposit_date: string;
+  retrieve_date: string;
+  retrieved_at: string | null;
+  subtotal: number;
+  collection_fee: number;
+  delivery_fee: number;
+  discount: number;
+  discount_percent: number;
+  promo_code: string | null;
+  points_earned: number;
+  points_redeemed: number;
+  total: number;
+  advanced: number;
+  left_to_pay: number;
+  payment_method: string;
+  status: string;
+  etat: string;
+  etat_label: string;
+  colonne: string | null;
+  workshop_status: { code: string; label: string } | null;
+  payment_status: { code: string; label: string } | null;
+  service: { code: string; label: string } | null;
+  is_express: boolean;
+  express_supplement: number;
+  pieces_count: number;
+  weight_kg_total: number;
+  quantity_label: string | null;
+  terminal: string | null;
+  local_ref: string | null;
+  storage_location: string | null;
+  discount_reason: string | null;
+  sync_status: { code: string; label: string; synced_at?: string | null } | null;
+  delivery_status: { code: string; label: string } | null;
+  notes: string | null;
+  items_count: number;
+  articles_label: string | null;
+  client_name: string;
+  client_phone: string | null;
+  agency: { id: number; name: string } | null;
+  units: ApiRetrievalUnit[];
+  transactions: ApiRetrievalTransaction[];
+  notification: { code: string; label: string; channel: string | null; at: string | null } | null;
+}
+
+export interface RetrievalCenterKpis {
+  ready_today: { value: number; pieces: number };
+  awaiting_notification: { value: number; by_channel: Record<string, number> };
+  retrieved_today: { value: number; delta_percent: number; compared_to: string };
+  unpaid_balances: { value: number; deposits: number };
+}
+
+export interface RetrievalTodaySchedule {
+  id: number;
+  code: string;
+  time: string;
+  client: string;
+  pieces: number;
+  payment: { code: string; label: string } | null;
+}
+
+export interface RetrievalCenterEnvelope {
+  data: ApiRetrieval[];
+  meta: {
+    page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+    kpis: RetrievalCenterKpis;
+    today_schedule: RetrievalTodaySchedule[];
+  };
+}
+
 /* ----------------------------- Dashboard (backend) ------------------------ */
 
 export interface DashboardKpis {

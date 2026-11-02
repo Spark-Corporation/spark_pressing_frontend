@@ -5,7 +5,8 @@ export interface Retrait {
   articles: string;
   retrait: string;
   jour: "today" | "tomorrow" | "week";
-  atelier: "Prêt" | "Contrôle";
+  atelier: string;
+  atelierReady?: boolean;
   total: number;
   reste: number;
   notif: string;
@@ -132,4 +133,88 @@ export function getRetraitDetail(code: string): { retrait: Retrait; detail: Retr
 
 export function formatFCFA(n: number): string {
   return `${n.toLocaleString("fr-FR").replace(/,/g, " ")}`;
+}
+
+/* --------------------- Mapping API GET /retrievals/center --------------------- */
+
+import type { ApiRetrieval } from "@/lib/types";
+
+const PAIEMENT_LABELS: Record<string, string> = {
+  cash: "Espèces",
+  mobile_money: "Mobile Money",
+  momo: "Mobile Money",
+  card: "Carte",
+  wallet: "Portefeuille",
+  transfer: "Virement",
+};
+
+const DAY_MS = 86400000;
+
+function ecartJours(dateStr: string): number {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return Number.POSITIVE_INFINITY;
+  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((local.getTime() - today.getTime()) / DAY_MS);
+}
+
+function heure(dateStr: string): string {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function jourLabel(dateStr: string): { label: string; jour: Retrait["jour"] } {
+  const ecart = ecartJours(dateStr);
+  if (ecart === 0) return { label: "Aujourd'hui", jour: "today" };
+  if (ecart === 1) return { label: "Demain", jour: "tomorrow" };
+  const date = new Date(dateStr);
+  const label =
+    Number.isNaN(date.getTime())
+      ? "—"
+      : date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  return { label, jour: "week" };
+}
+
+function atelierPredict(partStr: string): boolean {
+  const code = partStr.toLowerCase();
+  return code.includes("ready") || code.includes("pret") || code.includes("prêt");
+}
+
+export function mapRetrieval(r: ApiRetrieval): Retrait {
+  const { label: jourLabelTxt, jour } = jourLabel(r.retrieve_date);
+  const ecart = ecartJours(r.retrieve_date) === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : ecartJours(r.retrieve_date);
+  const prevuHeure = heure(r.retrieve_date);
+  const atelierLabel = r.workshop_status?.label ?? r.etat_label ?? "—";
+  const atelierCode = r.workshop_status?.code ?? r.etat ?? "";
+
+  let notif = "À notifier";
+  let notifTone: Retrait["notifTone"] = "warn";
+  if (r.notification) {
+    notif = `${r.notification.label}${r.notification.at ? ` • ${heure(r.notification.at)}` : ""}`;
+    const code = (r.notification.code ?? "").toLowerCase();
+    if (code.includes("read") || code.includes("delivered")) notifTone = "ok";
+    else if (code.includes("fail") || code.includes("pending") || code.includes("relance")) notifTone = "warn";
+    else notifTone = "muted";
+  }
+
+  return {
+    code: r.code,
+    client: r.client_name,
+    phone: r.client_phone ?? "—",
+    articles: r.articles_label ?? r.quantity_label ?? `${r.items_count} pièce(s)`,
+    retrait: `${jourLabelTxt} • ${prevuHeure}`,
+    jour,
+    atelier: atelierLabel,
+    atelierReady: atelierPredict(atelierCode),
+    total: r.total,
+    reste: r.left_to_pay,
+    notif,
+    notifTone,
+    sync: r.sync_status?.code === "synced" ? "ok" : "pending",
+    paiement: PAIEMENT_LABELS[r.payment_method] ?? r.payment_method,
+    daysAgo: Math.max(0, ecart === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : -ecart),
+    agency: r.agency?.name ?? "—",
+  };
 }

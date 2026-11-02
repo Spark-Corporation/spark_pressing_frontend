@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -13,14 +13,14 @@ import {
   MoreHorizontal,
   Plus,
   ReceiptText,
-  RefreshCw,
   Search,
   TrendingUp,
-  Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { getCashCenterAction } from "@/actions/AdminAction";
+import { handleApiAction } from "@/functions/handleResponseApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -47,17 +47,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CATEGORIES, FLUX_HEURES, JOURNAL, formatFCFA, type JournalOp } from "./data";
+import { CATEGORIES, formatFCFA, type JournalOp } from "./data";
+import type { CashCenterData } from "./types";
 
 const PAGE_SIZE = 7;
 type Periode = "jour" | "semaine" | "mois";
-
-const kpis = [
-  { label: "Recettes du jour", value: "895 500 FCFA", sub: "+12,4 % vs lundi dernier", icon: TrendingUp, iconBg: "bg-stone-100 text-stone-500" },
-  { label: "Dépenses", value: "92 000 FCFA", sub: "4 sorties validées", icon: ArrowUpRight, iconBg: "bg-red-50 text-red-500" },
-  { label: "Impayés", value: "186 750 FCFA", sub: "14 dépôts concernés", icon: ReceiptText, iconBg: "bg-amber-50 text-amber-600" },
-  { label: "Écart de caisse", value: "0 FCFA", sub: "Comptage conforme", icon: CheckCircle2, iconBg: "bg-emerald-50 text-emerald-600" },
-];
+const journalOperations: JournalOp[] = [];
 
 const statutBadge: Record<JournalOp["statut"], string> = {
   Synchronisé: "bg-emerald-50 text-emerald-700",
@@ -67,6 +62,9 @@ const statutBadge: Record<JournalOp["statut"], string> = {
 
 export default function CaissePage() {
   const { updatePath } = useGlobalData();
+  const [cashCenter, setCashCenter] = useState<CashCenterData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [periode, setPeriode] = useState<Periode>("mois");
   const [dateSel, setDateSel] = useState("today");
@@ -76,9 +74,63 @@ export default function CaissePage() {
   const [page, setPage] = useState(1);
   const [columns, setColumns] = useState({ categorie: true, operateur: true, paiement: true, flux: true });
 
+  const loadCashCenter = useCallback(() => {
+    void handleApiAction({
+      action: getCashCenterAction,
+      setLoading,
+      showErrorToast: false,
+      onSuccess: (data) => {
+        setCashCenter(data);
+        console.log("loadCashCenter : ", data);
+      },
+      onError: setLoadError,
+    });
+  }, []);
+
+  useEffect(() => {
+    loadCashCenter();
+  }, [loadCashCenter]);
+
+  const kpis = useMemo(() => {
+    if (!cashCenter) {
+      const value = loading ? "Chargement…" : "—";
+      const subtitle = loadError ? "Données indisponibles" : " ";
+      return [
+        { label: "Recettes du jour", value, sub: subtitle, icon: TrendingUp, iconBg: "bg-stone-100 text-stone-500" },
+        { label: "Dépenses", value, sub: subtitle, icon: ArrowUpRight, iconBg: "bg-red-50 text-red-500" },
+        { label: "Impayés", value, sub: subtitle, icon: ReceiptText, iconBg: "bg-amber-50 text-amber-600" },
+        { label: "Écart de caisse", value, sub: subtitle, icon: CheckCircle2, iconBg: "bg-emerald-50 text-emerald-600" },
+      ];
+    }
+    return [
+      { label: "Recettes du jour", value: `${formatFCFA(cashCenter.kpis.receipts.value)} FCFA`, sub: `${cashCenter.kpis.receipts.delta_percent > 0 ? "+" : ""}${cashCenter.kpis.receipts.delta_percent.toLocaleString("fr-FR")} % vs période précédente`, icon: TrendingUp, iconBg: "bg-stone-100 text-stone-500" },
+      { label: "Dépenses", value: `${formatFCFA(cashCenter.kpis.expenses.value)} FCFA`, sub: `${cashCenter.kpis.expenses.count} sorties`, icon: ArrowUpRight, iconBg: "bg-red-50 text-red-500" },
+      { label: "Impayés", value: `${formatFCFA(cashCenter.kpis.unpaid.value)} FCFA`, sub: `${cashCenter.kpis.unpaid.deposits} dépôts concernés`, icon: ReceiptText, iconBg: "bg-amber-50 text-amber-600" },
+      { label: "Écart de caisse", value: `${formatFCFA(cashCenter.kpis.difference.value)} FCFA`, sub: cashCenter.kpis.difference.label, icon: CheckCircle2, iconBg: "bg-emerald-50 text-emerald-600" },
+    ];
+  }, [cashCenter, loading, loadError]);
+
+  const hourlyMax = Math.max(
+    1,
+    ...(cashCenter?.hourly.series.flatMap(({ in: amountIn, out }) => [amountIn, out]) ?? []),
+  );
+  const dateLabel = cashCenter
+    ? new Date(`${cashCenter.date}T12:00:00`).toLocaleDateString("fr-FR", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "Chargement…";
+  const openingTime = cashCenter?.situation.opening.at
+    ? new Date(cashCenter.situation.opening.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    : "—";
+  const theoreticalTime = cashCenter?.theoretical.computed_at
+    ? new Date(cashCenter.theoretical.computed_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    : "—";
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return JOURNAL.filter((o) => {
+    return journalOperations.filter((o) => {
       if (periode === "jour" && o.daysAgo > 1) return false;
       if (periode === "semaine" && o.daysAgo > 7) return false;
       if (dateSel === "today" && o.daysAgo > 0) return false;
@@ -104,12 +156,18 @@ export default function CaissePage() {
         <div>
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-extrabold tracking-tight sm:text-2xl">
             Centre de caisse
-            <Badge variant="outline" className="border-0 bg-emerald-50 text-[10px] font-bold text-emerald-700">
-              Bingerville • ouverte
+            <Badge
+              variant="outline"
+              className={cn(
+                "border-0 text-[10px] font-bold",
+                cashCenter?.session.status.code === "open" ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground",
+              )}
+            >
+              {cashCenter ? `${cashCenter.agency} • ${cashCenter.session.status.label}` : loadError ? "Indisponible" : "Chargement…"}
             </Badge>
           </h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
-            Suivez les flux, rapprochez les moyens de paiement et auditez chaque mouvement de Bingerville.
+            Suivez les flux et rapprochez les moyens de paiement de {cashCenter?.agency ?? "votre agence"}.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -117,10 +175,10 @@ export default function CaissePage() {
             variant="outline"
             size="lg"
             className="gap-1.5 px-3 text-xs font-bold"
-            onClick={() => toast.info("Journal du 28 septembre 2026", { description: "Période journalière sélectionnée." })}
+            onClick={() => toast.info(`Journal du ${dateLabel}`, { description: "Période journalière sélectionnée." })}
           >
             <CalendarDays className="size-3.5" />
-            28 sept. 2026
+            {dateLabel}
           </Button>
           <Button
             variant="outline"
@@ -137,6 +195,23 @@ export default function CaissePage() {
           </Button>
         </div>
       </div>
+
+      {loadError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <span>Impossible de charger les données de caisse : {loadError}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setLoadError(null);
+              loadCashCenter();
+            }}
+            disabled={loading}
+          >
+            Réessayer
+          </Button>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -160,21 +235,27 @@ export default function CaissePage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-bold">Situation de caisse</h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Lundi 28 septembre 2026</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{dateLabel}</p>
             </div>
-            <Badge variant="outline" className="gap-1 border-0 bg-emerald-50 text-[10px] font-bold text-emerald-700">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              Caisse ouverte
+            <Badge
+              variant="outline"
+              className={cn(
+                "gap-1 border-0 text-[10px] font-bold",
+                cashCenter?.session.status.code === "open" ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground",
+              )}
+            >
+              <span className={cn("size-1.5 rounded-full", cashCenter?.session.status.code === "open" ? "bg-emerald-500" : "bg-muted-foreground")} />
+              {cashCenter?.session.status.label ?? (loading ? "Chargement…" : "Indisponible")}
             </Badge>
           </div>
           <div className="mt-3 space-y-2.5 text-xs">
-            {[
-              ["Solde d'ouverture", "180 000 FCFA", "08:02 • Grâce A.", false],
-              ["Encaissements dépôts", "+612 500 FCFA", "31 transactions", false],
-              ["Paiements de soldes", "+248 000 FCFA", "18 retraits", false],
-              ["Entrées hors dépôt", "+35 000 FCFA", "2 mouvements", false],
-              ["Sorties hors dépôt", "−92 000 FCFA", "4 mouvements", true],
-            ].map(([label, v, sub, neg]) => (
+            {(cashCenter ? [
+              ["Solde d'ouverture", `${formatFCFA(cashCenter.situation.opening.amount)} FCFA`, `${openingTime} • ${cashCenter.situation.opening.by}`, false],
+              ["Encaissements dépôts", `+${formatFCFA(cashCenter.situation.deposit_receipts.amount)} FCFA`, `${cashCenter.situation.deposit_receipts.count} transactions`, false],
+              ["Paiements de soldes", `+${formatFCFA(cashCenter.situation.balance_payments.amount)} FCFA`, `${cashCenter.situation.balance_payments.count} paiements`, false],
+              ["Entrées hors dépôt", `+${formatFCFA(cashCenter.situation.cash_in.amount)} FCFA`, `${cashCenter.situation.cash_in.count} mouvements`, false],
+              ["Sorties hors dépôt", `−${formatFCFA(cashCenter.situation.cash_out.amount)} FCFA`, `${cashCenter.situation.cash_out.count} mouvements`, true],
+            ] : []).map(([label, v, sub, neg]) => (
               <div key={label as string} className="flex items-baseline justify-between gap-2">
                 <div>
                   <p className="font-semibold">{label}</p>
@@ -189,41 +270,53 @@ export default function CaissePage() {
         <div className="space-y-4">
           <div className="rounded-xl bg-primary p-4 text-white">
             <p className="text-xs text-white/70">Solde théorique</p>
-            <p className="mt-1 text-2xl font-extrabold tracking-tight">983 500 FCFA</p>
-            <p className="mt-1 text-[11px] text-white/60">Calculé à 16:42</p>
+            <p className="mt-1 text-2xl font-extrabold tracking-tight">
+              {cashCenter ? `${formatFCFA(cashCenter.theoretical.amount)} FCFA` : "—"}
+            </p>
+            <p className="mt-1 text-[11px] text-white/60">Calculé à {theoreticalTime}</p>
           </div>
           <div className="rounded-xl border border-border bg-white p-4">
             <h2 className="text-sm font-bold">Ventilation des encaissements</h2>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">895 500 FCFA encaissés aujourd&apos;hui</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {cashCenter ? `${formatFCFA(cashCenter.breakdown.total)} FCFA encaissés` : "Données indisponibles"}
+            </p>
             <div className="mt-3 space-y-2.5 text-xs">
-              {[
-                ["Espèces", "420 000 FCFA • 46,9 %", 47, "bg-primary"],
-                ["Mobile Money", "375 500 FCFA • 41,9 %", 42, "bg-emerald-500"],
-                ["Carte / Virement", "100 000 FCFA • 11,2 %", 11, "bg-amber-500"],
-              ].map(([label, v, pct, bar]) => (
-                <div key={label as string}>
+              {(cashCenter?.breakdown.methods ?? []).map((method, index) => {
+                const barColors = ["bg-primary", "bg-emerald-500", "bg-amber-500", "bg-sky-500"];
+                return <div key={method.code}>
                   <div className="flex justify-between">
-                    <span className="font-medium text-muted-foreground">{label}</span>
-                    <span className="font-bold">{v}</span>
+                    <span className="font-medium text-muted-foreground">{method.label}</span>
+                    <span className="font-bold">{formatFCFA(method.amount)} FCFA • {method.percent.toLocaleString("fr-FR")} %</span>
                   </div>
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
-                    <div className={cn("h-full rounded-full", bar as string)} style={{ width: `${pct}%` }} />
+                    <div className={cn("h-full rounded-full", barColors[index % barColors.length])} style={{ width: `${method.percent}%` }} />
                   </div>
                 </div>
-              ))}
+              })}
             </div>
           </div>
         </div>
 
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
           <h2 className="text-sm font-bold">Montant réellement compté</h2>
-          <p className="mt-2 text-2xl font-extrabold tracking-tight">983 500 FCFA</p>
-          <Badge variant="outline" className="mt-2 gap-1 border-0 bg-emerald-100 text-[10px] font-bold text-emerald-700">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            Écart 0 FCFA
+          <p className="mt-2 text-2xl font-extrabold tracking-tight">
+            {cashCenter ? `${formatFCFA(cashCenter.counted.amount)} FCFA` : "—"}
+          </p>
+          <Badge
+            variant="outline"
+            className={cn(
+              "mt-2 gap-1 border-0 text-[10px] font-bold",
+              !cashCenter ? "bg-muted text-muted-foreground" : cashCenter.counted.difference === 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700",
+            )}
+          >
+            <span className={cn(
+              "size-1.5 rounded-full",
+              !cashCenter ? "bg-muted-foreground" : cashCenter.counted.difference === 0 ? "bg-emerald-500" : "bg-red-500",
+            )} />
+            Écart {cashCenter ? `${formatFCFA(cashCenter.counted.difference)} FCFA` : "—"}
           </Badge>
           <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
-            Comptage saisi par Grâce Adjoua à 17:56 • contrôle Aïcha Koné à 17:58.
+            {cashCenter?.kpis.difference.label ?? "Données de comptage indisponibles."}
           </p>
           <Button
             variant="outline"
@@ -256,51 +349,32 @@ export default function CaissePage() {
           <p className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-emerald-500" /> Entrées</span>
             <span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-red-400" /> Sorties</span>
-            <span className="ml-auto font-bold text-foreground">Solde net +803 500 FCFA</span>
+            <span className="ml-auto font-bold text-foreground">
+              Solde net {cashCenter ? `${cashCenter.hourly.net >= 0 ? "+" : "−"}${formatFCFA(Math.abs(cashCenter.hourly.net))} FCFA` : "—"}
+            </span>
           </p>
           <div className="mt-3 flex h-40 items-end gap-2">
-            {FLUX_HEURES.map((f) => (
-              <div key={f.h} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+            {(cashCenter?.hourly.series ?? []).map((hour) => (
+              <div key={hour.hour} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                 <div className="flex h-32 w-full items-end justify-center gap-1">
-                  <div className="w-2.5 rounded-sm bg-emerald-500" style={{ height: `${f.entrees}%` }} title={`Entrées ${f.h}`} />
-                  <div className="w-2.5 rounded-sm bg-red-400" style={{ height: `${Math.max(4, f.sorties * 0.6)}%` }} title={`Sorties ${f.h}`} />
+                  <div className="w-2.5 rounded-sm bg-emerald-500" style={{ height: `${hour.in ? Math.max(2, (hour.in / hourlyMax) * 100) : 0}%` }} title={`Entrées ${hour.hour} : ${formatFCFA(hour.in)} FCFA`} />
+                  <div className="w-2.5 rounded-sm bg-red-400" style={{ height: `${hour.out ? Math.max(2, (hour.out / hourlyMax) * 100) : 0}%` }} title={`Sorties ${hour.hour} : ${formatFCFA(hour.out)} FCFA`} />
                 </div>
-                <span className="text-[10px] text-muted-foreground">{f.h}</span>
+                <span className="text-[10px] text-muted-foreground">{hour.hour}</span>
               </div>
             ))}
+            {cashCenter && cashCenter.hourly.series.length === 0 && (
+              <p className="m-auto text-xs text-muted-foreground">Aucun flux horaire disponible.</p>
+            )}
           </div>
         </div>
 
         <div className="rounded-xl border border-border bg-white p-4 sm:p-5">
           <h2 className="text-sm font-bold">Synchronisation hors ligne</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Continuité de service Bingerville</p>
-          <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50/60 p-2.5 ring-1 ring-emerald-100">
-            <Wifi className="size-4 shrink-0 text-emerald-600" />
-            <div className="min-w-0 flex-1 text-[11px]">
-              <p className="font-bold text-emerald-800">En ligne • synchronisé</p>
-              <p className="text-emerald-700">Dernière synchronisation à 16:42:08</p>
-            </div>
-            <RefreshCw className="size-3.5 shrink-0 text-muted-foreground" />
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs">
-            <p className="font-bold">Opérations en attente</p>
-            <span className="text-[11px] font-bold text-amber-600">1 à envoyer</span>
-          </div>
-          <div className="mt-2 rounded-lg border border-border p-2.5 text-xs">
-            <p className="font-bold">MVT-00417 • Entrée</p>
-            <p className="text-[11px] text-muted-foreground">25 000 FCFA, créée à 16:31</p>
-            <p className="mt-1 text-right text-[11px] font-semibold text-amber-600">En attente</p>
-          </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">Envoi automatique dès que la connexion est stable.</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2 w-full gap-1.5 text-xs font-bold"
-            onClick={() => toast.success("File synchronisée", { description: "MVT-00417 envoyée au cloud." })}
-          >
-            <RefreshCw className="size-3.5" />
-            Synchroniser
-          </Button>
+          <p className="mt-0.5 text-xs text-muted-foreground">{cashCenter?.agency ?? "Agence"}</p>
+          <p className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+            L&apos;API du centre de caisse ne fournit pas encore les informations de synchronisation.
+          </p>
         </div>
       </div>
 
@@ -309,7 +383,11 @@ export default function CaissePage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold">Journal de caisse</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">57 opérations • total entrées 895 500 FCFA • total sorties 92 000 FCFA</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {cashCenter
+                ? `${cashCenter.journal_totals.operations} opérations • total entrées ${formatFCFA(cashCenter.journal_totals.total_in)} FCFA • total sorties ${formatFCFA(cashCenter.journal_totals.total_out)} FCFA`
+                : "Totaux du journal indisponibles"}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <DropdownMenu>
@@ -370,7 +448,7 @@ export default function CaissePage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="today">Aujourd&apos;hui • 28 sept.</SelectItem>
+              <SelectItem value="today">Aujourd&apos;hui • {dateLabel}</SelectItem>
               <SelectItem value="yesterday">Hier</SelectItem>
               <SelectItem value="all">Toutes dates</SelectItem>
             </SelectContent>
@@ -508,7 +586,7 @@ export default function CaissePage() {
               {rows.length === 0 && (
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={9} className="py-10 text-center text-[13px] text-muted-foreground">
-                    Aucune opération ne correspond à ces critères.
+                    Le détail des opérations n&apos;est pas fourni par l&apos;API du centre de caisse.
                   </TableCell>
                 </TableRow>
               )}
@@ -518,7 +596,7 @@ export default function CaissePage() {
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground">
-            {filtered.length === 0 ? "0" : `${start + 1}–${start + rows.length}`} sur 57 opérations
+            {filtered.length === 0 ? "0" : `${start + 1}–${start + rows.length}`} ligne détaillée • {cashCenter?.journal_totals.operations ?? 0} opérations au total
           </p>
           <div className="flex items-center gap-1">
             <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="gap-1 px-2.5 text-[11px] font-semibold">

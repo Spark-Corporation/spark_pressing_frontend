@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Calendar,
@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getWorkshopAction } from "@/actions/AdminAction";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,12 +44,12 @@ import {
 import {
   COLONNES,
   NEXT_COLONNE,
-  RESPONSABLES,
-  TICKETS,
-  getApercu,
+  mapWorkshopData,
+  type AtelierData,
   type Colonne,
   type Priorite,
   type Ticket,
+  type WorkshopData,
 } from "./data";
 
 type Periode = "jour" | "semaine" | "mois";
@@ -72,11 +73,13 @@ const colAccent: Record<Colonne, string> = {
   classes: "bg-primary",
 };
 
-const AGENCES = ["Bingerville", "Cocody", "Riviera 3", "Plateau", "Marcory"];
-
 export default function AtelierPage() {
-  const [tickets, setTickets] = useState<Ticket[]>(TICKETS);
-  const [selectedId, setSelectedId] = useState<string | null>("DEP-240928-047");
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [atelier, setAtelier] = useState<AtelierData | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<Colonne | null>(null);
   const [search, setSearch] = useState("");
@@ -86,6 +89,35 @@ export default function AtelierPage() {
   const [prestation, setPrestation] = useState("all");
   const [responsable, setResponsable] = useState("all");
   const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getWorkshopAction().then((result) => {
+      if (cancelled) return;
+      if (!result.success || !result.data) {
+        setLoadError(result.error ?? "Impossible de charger les données de l'atelier.");
+        setIsLoading(false);
+        return;
+      }
+
+      const data = mapWorkshopData(result.data as WorkshopData);
+      setAtelier(data);
+      setTickets(data.tickets);
+      setSelectedId((id) =>
+        data.tickets.some((ticket) => ticket.id === id) ? id : data.tickets[0]?.id ?? null,
+      );
+      setLoadError(null);
+      setIsLoading(false);
+    }).catch((error: unknown) => {
+      if (cancelled) return;
+      setLoadError(error instanceof Error ? error.message : "Impossible de charger les données de l'atelier.");
+      setIsLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAttempt]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -107,16 +139,30 @@ export default function AtelierPage() {
 
   const byCol = (col: Colonne) => filtered.filter((t) => t.colonne === col);
   const selected = tickets.find((t) => t.id === selectedId) ?? null;
-  const apercu = selected ? getApercu(selected) : null;
+  const apercu = selected?.apercu ?? null;
   const nextCol = selected ? NEXT_COLONNE[selected.colonne] : null;
-  const nextLabel = nextCol ? COLONNES.find((c) => c.key === nextCol)?.label : null;
+  const nextLabel = nextCol
+    ? atelier?.columns.find((column) => column.colonne === nextCol)?.title ??
+      COLONNES.find((c) => c.key === nextCol)?.label
+    : null;
+  const agencies = [...new Set(tickets.map((ticket) => ticket.agency).filter(Boolean))];
+  const responsables = [...(atelier?.responsables ?? []), "Non affectée"].filter(
+    (name, index, list) => list.indexOf(name) === index,
+  );
+  const columnLabels = (col: Colonne) =>
+    atelier?.columns.find((column) => column.colonne === col)?.title ??
+    atelier?.columns.find((column) => column.colonne === col)?.label ??
+    COLONNES.find((column) => column.key === col)?.label ??
+    col;
 
   const moveTicket = (id: string, col: Colonne) => {
     setTickets((list) => {
       const t = list.find((x) => x.id === id);
       if (!t || t.colonne === col) return list;
       const label = COLONNES.find((c) => c.key === col)?.label;
-      toast.success(`${id} → ${label}`, { description: "Action horodatée et ajoutée au journal d'audit." });
+      toast.info(`${id} → ${label}`, {
+        description: "Ce déplacement est local et n'est pas encore enregistré sur le serveur.",
+      });
       return list.map((x) => (x.id === id ? { ...x, colonne: col } : x));
     });
     setDragId(null);
@@ -154,22 +200,31 @@ export default function AtelierPage() {
         </div>
         <Select value={dateSel} onValueChange={(v) => setDateSel(v ?? "all")}>
           <SelectTrigger className="w-auto bg-white text-xs data-[size=default]:h-9">
-            <SelectValue placeholder="Date" />
+            <SelectValue>
+              {(value: string | null) =>
+                value === "today"
+                  ? "Aujourd'hui"
+                  : value === "tomorrow"
+                    ? "Demain"
+                    : value === "week"
+                      ? "Cette semaine"
+                      : "Toutes dates"}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toutes dates</SelectItem>
-            <SelectItem value="today">Aujourd&apos;hui • 28 sept.</SelectItem>
+            <SelectItem value="today">Aujourd&apos;hui</SelectItem>
             <SelectItem value="tomorrow">Demain</SelectItem>
             <SelectItem value="week">Cette semaine</SelectItem>
           </SelectContent>
         </Select>
         <Select value={agency} onValueChange={(v) => setAgency(v ?? "all")}>
           <SelectTrigger className="w-auto bg-white text-xs data-[size=default]:h-9">
-            <SelectValue placeholder="Agence" />
+            <SelectValue>{(value: string | null) => value === "all" ? "Toutes agences" : value}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toutes agences</SelectItem>
-            {AGENCES.map((a) => (
+            {agencies.map((a) => (
               <SelectItem key={a} value={a}>
                 {a}
               </SelectItem>
@@ -178,11 +233,11 @@ export default function AtelierPage() {
         </Select>
         <Select value={prestation} onValueChange={(v) => setPrestation(v ?? "all")}>
           <SelectTrigger className="w-auto bg-white text-xs data-[size=default]:h-9">
-            <SelectValue placeholder="Prestation" />
+            <SelectValue>{(value: string | null) => value === "all" ? "Toutes prestations" : value}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toutes prestations</SelectItem>
-            {["Express", "Classique", "Repassage"].map((p) => (
+            {(atelier?.services ?? []).map((p) => (
               <SelectItem key={p} value={p}>
                 {p}
               </SelectItem>
@@ -191,11 +246,11 @@ export default function AtelierPage() {
         </Select>
         <Select value={responsable} onValueChange={(v) => setResponsable(v ?? "all")}>
           <SelectTrigger className="w-auto bg-white text-xs data-[size=default]:h-9">
-            <SelectValue placeholder="Responsable" />
+            <SelectValue>{(value: string | null) => value === "all" ? "Tous responsables" : value}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous responsables</SelectItem>
-            {RESPONSABLES.map((r) => (
+            {responsables.map((r) => (
               <SelectItem key={r} value={r}>
                 {r}
               </SelectItem>
@@ -225,19 +280,46 @@ export default function AtelierPage() {
         </Tabs>
       </div>
 
+      {loadError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+          <span>{loadError}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setIsLoading(true);
+              setLoadAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Réessayer
+          </Button>
+        </div>
+      )}
+
       {/* Capacité */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-white px-4 py-3">
         <div className="min-w-44">
-          <p className="text-[13px] font-bold">Capacité atelier • 18 / 24</p>
-          <p className="text-[11px] text-muted-foreground">Charge maîtrisée • 6 créneaux libres</p>
+          <p className="text-[13px] font-bold">
+            Capacité atelier • {atelier?.capacity.in_progress ?? "—"} / {atelier?.capacity.capacity ?? "—"}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            {atelier ? atelier.capacity.label : "Chargement de la capacité…"}
+          </p>
         </div>
         <div className="h-1.5 min-w-40 flex-1 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-secondary" style={{ width: "75%" }} />
+          <div
+            className="h-full rounded-full bg-secondary"
+            style={{ width: `${Math.min(100, Math.max(0, atelier?.capacity.percent ?? 0))}%` }}
+          />
         </div>
-        <span className="text-[13px] font-extrabold text-secondary">75 %</span>
+        <span className="text-[13px] font-extrabold text-secondary">
+          {atelier ? `${atelier.capacity.percent} %` : "—"}
+        </span>
         <p className="flex items-center gap-1.5 border-l border-border pl-4 text-[11px] text-muted-foreground">
           <Info className="size-3.5 shrink-0" />
-          Les étapes lavage et classer sont configurables par agence.
+          {atelier?.workflow.laveur_enabled || atelier?.workflow.classeur_enabled
+            ? "Les étapes configurées sont actives pour cet atelier."
+            : "Les étapes de l'atelier sont désactivées."}
         </p>
       </div>
 
@@ -246,6 +328,7 @@ export default function AtelierPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
           {COLONNES.map((col) => {
             const list = byCol(col.key);
+            const stats = atelier?.columns.find((column) => column.colonne === col.key);
             return (
               <div
                 key={col.key}
@@ -265,18 +348,30 @@ export default function AtelierPage() {
               >
                 <div className="flex items-center gap-2 px-1 pt-1">
                   <span className={cn("h-5 w-1 rounded-full", colAccent[col.key])} />
-                  <p className="flex-1 text-[13px] font-bold">{col.label}</p>
+                  <p className="flex-1 text-[13px] font-bold">{columnLabels(col.key)}</p>
                   <Badge variant="outline" className="border-0 bg-muted text-[10px] font-bold text-muted-foreground">
                     {list.length}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2 px-1">
                   <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div className={cn("h-full rounded-full", col.bar)} style={{ width: col.fill }} />
+                    <div
+                      className={cn("h-full rounded-full", col.bar)}
+                      style={{ width: `${Math.min(100, Math.max(0, stats?.share_percent ?? 0))}%` }}
+                    />
                   </div>
-                  <span className="text-[10px] text-muted-foreground">{col.sub}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {stats
+                      ? `${stats.pieces} pièce${stats.pieces > 1 ? "s" : ""} • ${stats.average_stage_minutes} min moy.${stats.overdue_count > 0 ? ` • ${stats.overdue_count} retard${stats.overdue_count > 1 ? "s" : ""}` : ""}`
+                      : "Statistiques indisponibles"}
+                  </span>
                 </div>
 
+                {list.length === 0 && (
+                  <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-[11px] text-muted-foreground">
+                    {isLoading ? "Chargement des dépôts…" : loadError ? "Données indisponibles" : "Aucun dépôt"}
+                  </p>
+                )}
                 {list.map((t) => {
                   const pb = prioriteBadge[t.priorite];
                   const isSel = selectedId === t.id;
@@ -490,16 +585,17 @@ export default function AtelierPage() {
                   </p>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {[
-                      ["Laveur", apercu.laveur],
-                      ["Classeur", apercu.classeur],
+                      ...(apercu.laveur ? [["Laveur", apercu.laveur] as const] : []),
+                      ...(apercu.classeur ? [["Classeur", apercu.classeur] as const] : []),
+                      ...(apercu.responsable ? [["Responsable", apercu.responsable] as const] : []),
                     ].map(([role, r]) => (
                       <div key={role as string} className="flex items-center gap-2 rounded-lg bg-muted/50 p-2">
-                        <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", (r as { bg: string }).bg)}>
-                          {(r as { initials: string }).initials}
+                        <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", r.bg)}>
+                          {r.initials}
                         </span>
                         <div className="min-w-0">
-                          <p className="text-[10px] text-muted-foreground">{role as string}</p>
-                          <p className="truncate text-xs font-bold">{(r as { nom: string }).nom}</p>
+                          <p className="text-[10px] text-muted-foreground">{role}</p>
+                          <p className="truncate text-xs font-bold">{r.nom}</p>
                         </div>
                       </div>
                     ))}
@@ -543,7 +639,7 @@ export default function AtelierPage() {
                 )}
                 <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
                   <ShieldCheck className="size-3.5" />
-                  Action horodatée et ajoutée au journal d&apos;audit
+                  Aperçu des données atelier • déplacements non enregistrés
                 </p>
               </div>
             </div>

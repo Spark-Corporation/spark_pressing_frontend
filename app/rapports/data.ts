@@ -94,3 +94,15 @@ export const BILAN_BARS = [
 export function formatFCFA(n: number): string {
   return `${n.toLocaleString("fr-FR").replace(/,/g, " ")}`;
 }
+
+export function downloadBase64(base64: string, mime: string, filename: string) {
+  const binary = atob(base64);
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}

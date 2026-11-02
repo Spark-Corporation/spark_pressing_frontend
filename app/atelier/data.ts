@@ -24,6 +24,7 @@ export interface Ticket {
   daysAgo: number;
   agency: string;
   colonne: Colonne;
+  apercu?: Apercu;
 }
 
 export interface ApercuArticle {
@@ -36,9 +37,81 @@ export interface Apercu {
   articles: ApercuArticle[];
   totalArticles: string;
   remarques: string;
-  laveur: Responsable;
-  classeur: Responsable;
+  laveur?: Responsable;
+  classeur?: Responsable;
+  responsable?: Responsable;
   chrono: { title: string; detail: string }[];
+}
+
+export interface WorkshopDeposit {
+  code: string;
+  deposit_date: string;
+  retrieve_date: string | null;
+  colonne: Colonne;
+  client_name: string;
+  client?: { fullname?: string } | null;
+  agency?: { name?: string } | null;
+  service?: { code?: string; label?: string } | null;
+  is_express?: boolean;
+  pieces_count?: number;
+  weight_kg_total?: number;
+  quantity_label?: string;
+  articles_label?: string;
+  etat_label?: string;
+  workshop_status?: { label?: string } | null;
+  priority?: { code?: string; label?: string } | null;
+  echeance?: string | null;
+  overdue_minutes?: number;
+  stage_since?: string | null;
+  stage_minutes?: number;
+  elapsed_seconds?: number;
+  defects_count?: number;
+  notes?: string | null;
+  responsable?: { fullname?: string; initials?: string } | null;
+  units?: {
+    designation?: string;
+    quantity?: number;
+    color?: string | null;
+    defects?: { label?: string }[];
+    internal_notes?: string | null;
+  }[];
+}
+
+export interface WorkshopData {
+  capacity: {
+    in_progress: number;
+    capacity: number;
+    percent: number;
+    label: string;
+  };
+  workflow: {
+    laveur_enabled: boolean;
+    classeur_enabled: boolean;
+  };
+  columns: {
+    colonne: Colonne;
+    label: string;
+    title: string;
+    count: number;
+    share_percent: number;
+    pieces: number;
+    overdue_count: number;
+    average_stage_minutes: number;
+  }[];
+  board: Record<Colonne, WorkshopDeposit[]>;
+  filters?: {
+    services?: { code: string; label: string }[];
+    responsables?: { id: number; fullname: string }[];
+  };
+}
+
+export interface AtelierData {
+  capacity: WorkshopData["capacity"];
+  workflow: WorkshopData["workflow"];
+  columns: WorkshopData["columns"];
+  tickets: Ticket[];
+  services: string[];
+  responsables: string[];
 }
 
 export const COLONNES: { key: Colonne; label: string; sub: string; bar: string; fill: string }[] = [
@@ -81,6 +154,150 @@ export const TICKETS: Ticket[] = [
 ];
 
 export const RESPONSABLES = ["Jean Koffi", "Mariam Koné", "M. Traoré", "Clarisse B.", "Paul Yapi", "Odile Kassi", "Non affectée"];
+
+function initialsFor(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
+function formatWorkshopDate(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function mapPriority(priority: WorkshopDeposit["priority"]): Priorite {
+  const value = `${priority?.code ?? ""} ${priority?.label ?? ""}`.toLowerCase();
+  if (value.includes("urgent")) return "Urgent";
+  if (value.includes("high") || value.includes("haute") || value.includes("élev")) return "Haute";
+  return "Normale";
+}
+
+function mapPrestation(service: WorkshopDeposit["service"], isExpress?: boolean): PrestationAtelier {
+  const code = service?.code?.toLowerCase() ?? "";
+  const label = service?.label?.toLowerCase() ?? "";
+  if (isExpress || code.includes("express") || label.includes("express")) return "Express";
+  if (code.includes("repass") || label.includes("repass")) return "Repassage";
+  return "Classique";
+}
+
+function mapWorkshopDeposit(deposit: WorkshopDeposit): Ticket {
+  const client = deposit.client_name || deposit.client?.fullname || "Client inconnu";
+  const responsable = deposit.responsable?.fullname
+    ? {
+        initials: deposit.responsable.initials || initialsFor(deposit.responsable.fullname),
+        nom: deposit.responsable.fullname,
+        bg: "bg-primary text-white",
+      }
+    : null;
+  const dueDate = deposit.echeance ?? deposit.retrieve_date;
+  const dueLabel = formatWorkshopDate(dueDate);
+  const created = new Date(deposit.deposit_date);
+  const daysAgo = Number.isNaN(created.getTime())
+    ? 0
+    : Math.max(0, Math.floor((Date.now() - created.getTime()) / 86_400_000));
+  const dueDay = dueDate ? new Date(dueDate) : null;
+  const dayDistance =
+    dueDay && !Number.isNaN(dueDay.getTime())
+      ? Math.floor((dueDay.setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000)
+      : 0;
+  const days = Math.max(0, deposit.stage_minutes ?? Math.floor((deposit.elapsed_seconds ?? 0) / 60));
+  const hasElapsed = deposit.stage_minutes !== undefined || deposit.elapsed_seconds !== undefined;
+  const elapsed = !hasElapsed
+    ? "Temps en cours indisponible"
+    : days >= 60
+      ? `Depuis ${Math.floor(days / 60)} h ${String(days % 60).padStart(2, "0")}`
+      : `Depuis ${days} min`;
+  const serviceLabel = mapPrestation(deposit.service, deposit.is_express);
+  const volume =
+    deposit.quantity_label ??
+    deposit.articles_label ??
+    (deposit.weight_kg_total
+      ? `${deposit.weight_kg_total.toLocaleString("fr-FR")} kg`
+      : `${deposit.pieces_count ?? 0} pièces`);
+  const defects = (deposit.units ?? []).flatMap((unit) =>
+    (unit.defects ?? []).map((defect) => defect.label).filter((label): label is string => Boolean(label)),
+  );
+  const articles: ApercuArticle[] = (deposit.units ?? []).map((unit) => {
+    const details = [unit.color, ...(unit.defects ?? []).map((defect) => defect.label), unit.internal_notes]
+      .filter(Boolean)
+      .join(" • ");
+    return {
+      qte: unit.quantity ?? 1,
+      label: unit.designation || "Article",
+      detail: details || "Aucun détail",
+    };
+  });
+  const chrono: Apercu["chrono"] = [];
+  if (deposit.stage_since) {
+    chrono.push({
+      title: deposit.workshop_status?.label ?? deposit.etat_label ?? "Étape actuelle",
+      detail: formatWorkshopDate(deposit.stage_since) ?? "Date inconnue",
+    });
+  }
+  chrono.push({
+    title: "Dépôt enregistré",
+    detail: formatWorkshopDate(deposit.deposit_date) ?? "Date inconnue",
+  });
+
+  return {
+    id: deposit.code,
+    client,
+    priorite: mapPriority(deposit.priority),
+    prestation: serviceLabel,
+    volume,
+    echeance: dueLabel ?? "Échéance non définie",
+    jour: dayDistance <= 0 ? "today" : dayDistance === 1 ? "tomorrow" : "week",
+    elapsed,
+    retard: (deposit.overdue_minutes ?? 0) > 0
+      ? `En retard de ${deposit.overdue_minutes} min`
+      : undefined,
+    etape: deposit.workshop_status?.label ?? deposit.etat_label ?? "Étape inconnue",
+    taches: defects.length > 0 ? `${defects.length} défaut${defects.length > 1 ? "s" : ""} signalé${defects.length > 1 ? "s" : ""}` : undefined,
+    responsable,
+    daysAgo,
+    agency: deposit.agency?.name ?? "",
+    colonne: deposit.colonne,
+    apercu: {
+      articles,
+      totalArticles: volume,
+      remarques: deposit.notes || defects.join(", ") || "Aucune remarque signalée.",
+      responsable: responsable ?? undefined,
+      chrono,
+    },
+  };
+}
+
+export function mapWorkshopData(data: WorkshopData): AtelierData {
+  const tickets = (Object.values(data.board).flat() as WorkshopDeposit[]).map(mapWorkshopDeposit);
+  const serviceOptions = data.filters?.services
+    ?.map((service) => mapPrestation(service))
+    .filter(Boolean) ?? [];
+  const responsableOptions = data.filters?.responsables?.map((item) => item.fullname).filter(Boolean) ?? [];
+  return {
+    capacity: data.capacity,
+    workflow: data.workflow,
+    columns: data.columns ?? [],
+    tickets,
+    services: [...new Set(
+      serviceOptions.length ? serviceOptions : tickets.map((ticket) => ticket.prestation),
+    )],
+    responsables: responsableOptions.length
+      ? responsableOptions
+      : [...new Set(tickets.map((ticket) => ticket.responsable?.nom).filter((name): name is string => Boolean(name)))],
+  };
+}
 
 const AWA_APERCU: Apercu = {
   articles: [

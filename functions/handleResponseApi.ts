@@ -46,15 +46,16 @@ export async function handleApiAction<T, P>({
                 onSuccess(res.data);
             }
         } else {
+            const error = errorMessage ?? res.error ?? "Une erreur est survenue";
             if(showErrorToast){
-                toast.error(res.error);
+                toast.error(error);
             }
             if ((res.error?.includes("Non autorisé") || res.error?.includes("Not authenticated")) && logout) {
                 logout?.();
             } else if(res.error?.includes("Permissions manquantes") && onPermissionError){
                 onPermissionError?.();
             }else {
-                onError?.(errorMessage ?? "");
+                onError?.(error);
             }
         }
     } finally {
