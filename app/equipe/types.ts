@@ -79,3 +79,37 @@ export interface TeamUsersParams {
   page?: number;
   per_page?: number;
 }
+
+/* ------------------------------ GET /roles ------------------------------ */
+
+/** Colonne de permission de la matrice (ex. view -> "Consultation"). */
+export interface RoleColumn {
+  code: string;
+  label: string;
+}
+
+/** Domaine de la matrice (ex. clients -> "Clients"). */
+export interface RoleDomain {
+  code: string;
+  label: string;
+}
+
+/** Rôle renvoyé par /roles. */
+export interface RoleDefinition {
+  id: number;
+  name: string;
+  label: string;
+  system: boolean;
+  /** code de domaine -> "all" ou liste de codes de colonnes de permission. */
+  cells: Record<string, string>;
+  summary: {
+    permissions: number;
+    domains: number;
+  };
+}
+
+export interface RolesData {
+  columns: RoleColumn[];
+  domains: RoleDomain[];
+  roles: RoleDefinition[];
+}

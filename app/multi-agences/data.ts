@@ -1,5 +1,6 @@
 export interface Agence {
   slug: string;
+  agencyId: number;
   nom: string;
   adresse: string;
   code: string;
@@ -36,6 +37,7 @@ export interface Agence {
 export const AGENCES: Agence[] = [
   {
     slug: "bingerville",
+    agencyId: 1,
     nom: "Bingerville",
     adresse: "Carrefour Feh Kessé",
     code: "BGV-01",
@@ -91,6 +93,7 @@ export const AGENCES: Agence[] = [
   },
   {
     slug: "plateau",
+    agencyId: 2,
     nom: "Plateau",
     adresse: "Carrefour Fahi Chardy",
     code: "PLT-01",
@@ -142,6 +145,7 @@ export const AGENCES: Agence[] = [
   },
   {
     slug: "cocody",
+    agencyId: 3,
     nom: "Cocody Angré",
     adresse: "Boulevard Valéry Giscard",
     code: "COC-01",
@@ -191,6 +195,7 @@ export const AGENCES: Agence[] = [
   },
   {
     slug: "marcory",
+    agencyId: 4,
     nom: "Marcory",
     adresse: "Boulevard Valéry Giscard",
     code: "MAR-01",
@@ -241,6 +246,55 @@ export const AGENCES: Agence[] = [
 
 export function getAgence(slug: string): Agence | undefined {
   return AGENCES.find((a) => a.slug === slug);
+}
+
+export function getAgencePlaceholder(agencyId: number): Agence {
+  return {
+    slug: String(agencyId),
+    agencyId,
+    nom: `Agence ${agencyId}`,
+    adresse: "—",
+    code: "—",
+    ca: "—",
+    caDelta: "—",
+    depots: 0,
+    retraits: 0,
+    impayes: "—",
+    objectif: 0,
+    pieces: "—",
+    caisse: "—",
+    tauxRetrait: "—",
+    objectifReste: "—",
+    panier: "—",
+    impayesPct: "—",
+    retardsPct: "—",
+    satisfaction: "—",
+    atelier: [],
+    atelierTotal: "—",
+    clientsActifs: 0,
+    membresFidelite: 0,
+    fidelitePct: "0 %",
+    points: "0",
+    nouveauxVip: "0",
+    repartition: [0, 0, 0],
+    retards: [],
+    retardsNote: "—",
+    impayesClients: "—",
+    impayesNote: "—",
+    equipe: [],
+    historique: [],
+  };
+}
+
+/** Récupère le slug d'une agence depuis son nom (utilisé par les données API). */
+export function getSlugByName(name: string): string | undefined {
+  const norm = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  return AGENCES.find((a) => norm(a.nom) === norm(name))?.slug;
 }
 
 export function formatFCFA(n: number): string {

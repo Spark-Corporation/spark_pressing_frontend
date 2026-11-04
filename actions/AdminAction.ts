@@ -12,10 +12,16 @@ import {
   ReportsOverviewParams,
 } from "@/app/rapports/types";
 import {
+  RolesData,
   TeamOverviewData,
   TeamUsersEnvelope,
   TeamUsersParams,
 } from "@/app/equipe/types";
+import {
+  NetworkAgencyDetailData,
+  NetworkOverviewData,
+  NetworkOverviewParams,
+} from "@/app/multi-agences/types";
 import type {
   ArticleCategoriesEnvelope,
   ArticleDetailEnvelope,
@@ -272,6 +278,53 @@ export async function getReportsDailyAction(
   }
 }
 
+// ------------------------- RÉSEAU : VUE CONSOLIDÉE MULTI-AGENCES ---------------------------------
+export async function getNetworkOverviewAction(
+  params?: NetworkOverviewParams,
+): Promise<
+  | { success: true; data: NetworkOverviewData }
+  | { success: false; error: string }
+> {
+  try {
+    const search = new URLSearchParams();
+    if (params?.date_from) search.set("date_from", params.date_from);
+    if (params?.date_to) search.set("date_to", params.date_to);
+    const qs = search.toString();
+    // Mois en cours par défaut côté API si aucune période transmise.
+    const result = await api.get(`/network/overview${qs ? `?${qs}` : ""}`);
+    const data = result?.data ?? result;
+    if (!data?.period || !data?.kpis) {
+      throw new Error("Réponse inattendue du serveur pour la vue multi-agences.");
+    }
+    return { success: true, data: data as NetworkOverviewData };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ------------------------- RÉSEAU : DÉTAIL AGENCE ---------------------------------
+export async function getNetworkAgencyAction(
+  params?: { agency_id: number | string },
+): Promise<
+  | { success: true; data: NetworkAgencyDetailData }
+  | { success: false; error: string }
+> {
+  try {
+    const agencyId = params?.agency_id;
+    if (!agencyId) {
+      throw new Error("Agence inconnue. Veuillez réessayer.");
+    }
+    const result = await api.get(`/network/agencies/${agencyId}`);
+    const data = result?.data ?? result;
+    if (!data?.agency || !data?.kpis) {
+      throw new Error("Réponse inattendue du serveur pour le détail de l'agence.");
+    }
+    return { success: true, data: data as NetworkAgencyDetailData };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 // ------------------------- ÉQUIPE : OVERVIEW ---------------------------------
 export async function getTeamOverviewAction(): Promise<
   | { success: true; data: TeamOverviewData }
@@ -310,6 +363,23 @@ export async function getTeamUsersAction(
       throw new Error("Réponse inattendue du serveur pour les utilisateurs.");
     }
     return { success: true, data: data as TeamUsersEnvelope };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ------------------------- ÉQUIPE : RÔLES ---------------------------------
+export async function getRolesAction(): Promise<
+  | { success: true; data: RolesData }
+  | { success: false; error: string }
+> {
+  try {
+    const result = await api.get("/roles");
+    const data = result?.data ?? result;
+    if (!data || !Array.isArray(data.roles)) {
+      throw new Error("Réponse inattendue du serveur pour les rôles.");
+    }
+    return { success: true, data: data as RolesData };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

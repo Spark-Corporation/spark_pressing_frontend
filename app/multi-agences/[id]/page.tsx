@@ -1,17 +1,19 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { AGENCES, getAgence } from "../data";
+import { AGENCES, getAgencePlaceholder } from "../data";
 import AgenceView from "./AgenceView";
 
 export function generateStaticParams() {
-  return AGENCES.map((a) => ({ agence: a.slug }));
+  return AGENCES.map((a) => ({ id: String(a.agencyId) }));
 }
 
-async function AgenceContent({ params }: { params: Promise<{ agence: string }> }) {
-  const { agence } = await params;
-  const found = getAgence(agence);
-  if (!found) notFound();
-  return <AgenceView agence={found} />;
+async function AgenceContent({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const agencyId = Number(id);
+  if (!Number.isSafeInteger(agencyId) || agencyId < 1) notFound();
+
+  const found = AGENCES.find((agence) => agence.agencyId === agencyId) ?? getAgencePlaceholder(agencyId);
+  return <AgenceView agence={found} agencyId={agencyId} />;
 }
 
 function AgenceFallback() {
@@ -28,7 +30,7 @@ function AgenceFallback() {
   );
 }
 
-export default function AgenceRoute({ params }: { params: Promise<{ agence: string }> }) {
+export default function AgenceRoute({ params }: { params: Promise<{ id: string }> }) {
   return (
     <Suspense fallback={<AgenceFallback />}>
       <AgenceContent params={params} />

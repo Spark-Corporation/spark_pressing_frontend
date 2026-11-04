@@ -561,7 +561,11 @@ export default function EquipePage() {
                   </div>
                   <Select value={agency} onValueChange={(v) => { setAgency(v ?? "all"); resetPage(); }}>
                     <SelectTrigger className="w-auto text-xs data-[size=default]:h-9">
-                      <SelectValue placeholder="Agence" />
+                      <SelectValue placeholder="Agence">
+                        {agency === "all"
+                          ? "Toutes les agences"
+                          : (agencyItems.find((a) => a.value === agency)?.label ?? "Agence")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Toutes les agences</SelectItem>
@@ -574,7 +578,11 @@ export default function EquipePage() {
                   </Select>
                   <Select value={role} onValueChange={(v) => { setRole(v ?? "all"); resetPage(); }}>
                     <SelectTrigger className="w-auto text-xs data-[size=default]:h-9">
-                      <SelectValue placeholder="Rôle" />
+                      <SelectValue placeholder="Rôle">
+                        {role === "all"
+                          ? "Tous les rôles"
+                          : (roleItems.find((r) => r.value === role)?.label ?? "Rôle")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Tous les rôles</SelectItem>
@@ -587,7 +595,11 @@ export default function EquipePage() {
                   </Select>
                   <Select value={statut} onValueChange={(v) => { setStatut(v ?? "all"); resetPage(); }}>
                     <SelectTrigger className="w-auto text-xs data-[size=default]:h-9">
-                      <SelectValue placeholder="Statut" />
+                      <SelectValue placeholder="Statut">
+                        {statut === "all"
+                          ? "Tous les statuts"
+                          : (statutItems.find((s) => s.value === statut)?.label ?? "Statut")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Tous les statuts</SelectItem>
@@ -862,7 +874,7 @@ export default function EquipePage() {
           </Label>
           <Select value={selectedInviteRole} onValueChange={(v) => setInviteRole(v ?? "Manager")}>
             <SelectTrigger id="inv-role" className="w-full text-[13px] data-[size=default]:h-9">
-              <SelectValue />
+              <SelectValue placeholder="Rôle">{selectedInviteRoleLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {roleItems.map((r) => (

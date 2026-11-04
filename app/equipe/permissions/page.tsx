@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   Copy,
@@ -11,6 +12,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { getRolesAction } from "@/actions/AdminAction";
+import { handleApiAction } from "@/functions/handleResponseApi";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -26,32 +30,187 @@ import {
   MATRICE,
   MEMBRES,
   PERM_HISTORIQUE,
-  ROLES_COLONNES,
   ROLES_PERM,
 } from "../data";
+import type { RoleColumn, RolesData } from "../types";
 
 type OngletPerm = "matrice" | "utilisateurs" | "historique";
+
+interface MatrixDomain {
+  code: string;
+  label: string;
+  sub: string;
+  sensibles: string[];
+}
+
+interface MatrixRole {
+  id: number | null;
+  label: string;
+  system: boolean;
+  /** code de domaine -> état (activé/désactivé) de chaque colonne de permission */
+  cells: Record<string, boolean[]>;
+  /** Résumé renvoyé par l'API ; null pour les données mock. */
+  summary: { permissions: number; domains: number } | null;
+  /** Nombre d'utilisateurs connu uniquement côté mock. */
+  mockUsers?: number;
+}
+
+interface MatrixModel {
+  columns: RoleColumn[];
+  domains: MatrixDomain[];
+  roles: MatrixRole[];
+  source: "api" | "mock";
+}
+
+/** Convertit la valeur `cells[domain]` de l'API en états de cases :
+ * "all" -> tout coché ; sinon liste de codes/labels de colonnes séparés par `,` `;` ou `|`. */
+const cellToBooleans = (
+  val: string | undefined,
+  columns: RoleColumn[],
+): boolean[] => {
+  const s = (val ?? "").trim();
+  if (!s) return columns.map(() => false);
+  const l = s.toLowerCase();
+  if (l === "all" || l === "*") return columns.map(() => true);
+  const parts = l.split(/[,;|]/).map((p) => p.trim()).filter(Boolean);
+  return columns.map(
+    (c) => parts.includes(c.code.toLowerCase()) || parts.includes(c.label.toLowerCase()),
+  );
+};
+
+/** Modèle de secours construit depuis les mocks locaux (API indisponible). */
+const buildMockModel = (): MatrixModel => {
+  const actions = Array.from(new Set(MATRICE.flatMap((d) => d.actions)));
+  const columns: RoleColumn[] = actions.map((a) => ({ code: a.toLowerCase(), label: a }));
+  const domains: MatrixDomain[] = MATRICE.map((d) => ({
+    code: d.domaine.toLowerCase(),
+    label: d.domaine,
+    sub: d.sub,
+    sensibles: d.sensibles,
+  }));
+  const roles: MatrixRole[] = ROLES_PERM.map((r) => ({
+    id: null,
+    label: r.role,
+    system: r.systeme,
+    summary: null,
+    mockUsers: r.utilisateurs,
+    cells: Object.fromEntries(
+      MATRICE.map((d) => [
+        d.domaine.toLowerCase(),
+        columns.map((c) => {
+          const i = d.actions.findIndex((a) => a.toLowerCase() === c.code);
+          return i >= 0 ? Boolean(d.droits[r.role]?.[i]) : false;
+        }),
+      ]),
+    ),
+  }));
+  return { columns, domains, roles, source: "mock" };
+};
 
 export default function PermissionsPage() {
   const router = useRouter();
   const { updatePath } = useGlobalData();
+  const { logout } = useAuth();
+
+  // ------------------------- Données API (GET /roles) -------------------------
+  const [rolesData, setRolesData] = useState<RolesData | null>(null);
+  const [loading, setLoadingState] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadRoles = useCallback(() => {
+    void handleApiAction({
+      action: getRolesAction,
+      setLoading: setLoadingState,
+      showErrorToast: false,
+      logout,
+      onSuccess: (res) => {
+        setRolesData(res as RolesData);
+        setLoadError(null);
+      },
+      onError: setLoadError,
+    });
+  }, [logout]);
+
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
+
+  // ------------------------- Modèle matrice -------------------------
+  /**
+   * Columns / domains / roles viennent de GET /roles.
+   * Les `sub` et marqueurs « Sensible » ne sont pas fournis par l'API :
+   * ils sont enrichis depuis les mocks par correspondance de libellé de domaine.
+   */
+  const apiModel = useMemo<MatrixModel | null>(() => {
+    if (!rolesData?.roles?.length) return null;
+    const columns = rolesData.columns ?? [];
+    const domains: MatrixDomain[] = (rolesData.domains ?? []).map((d) => {
+      const mock = MATRICE.find((m) => m.domaine.toLowerCase() === d.label.toLowerCase());
+      return {
+        code: d.code,
+        label: d.label,
+        sub: mock?.sub ?? "",
+        sensibles: mock?.sensibles ?? [],
+      };
+    });
+    const roles: MatrixRole[] = rolesData.roles.map((r) => ({
+      id: r.id,
+      label: r.label ?? r.name,
+      system: Boolean(r.system),
+      summary: r.summary ? { permissions: r.summary.permissions, domains: r.summary.domains } : null,
+      cells: Object.fromEntries(
+        domains.map((d) => [d.code, cellToBooleans(r.cells?.[d.code], columns)]),
+      ),
+    }));
+    return { columns, domains, roles, source: "api" };
+  }, [rolesData]);
+
+  const model = useMemo(() => apiModel ?? buildMockModel(), [apiModel]);
+
+  // ------------------------- État local UI -------------------------
   const [selectedRole, setSelectedRole] = useState("Manager");
   const [onglet, setOnglet] = useState<OngletPerm>("matrice");
   const [portee, setPortee] = useState("Agences affectées");
   const [niveau, setNiveau] = useState("Données de l'agence");
   const [heritage, setHeritage] = useState("Limité par Admin");
-  const [droits, setDroits] = useState(() =>
-    Object.fromEntries(MATRICE.map((d) => [d.domaine, Object.fromEntries(Object.entries(d.droits).map(([r, v]) => [r, [...v]]))])),
-  );
+  const [droits, setDroits] = useState<Record<string, Record<string, boolean[]>>>({});
   const [dirty, setDirty] = useState(false);
   const [modele, setModele] = useState("Manager");
   const [copyPerms, setCopyPerms] = useState(true);
   const [copyRestr, setCopyRestr] = useState(true);
 
-  const toggleDroit = (domaine: string, role: string, idx: number) => {
+  // Initialise l'état des cases depuis le modèle (API ou mock).
+  useEffect(() => {
+    setDroits(Object.fromEntries(model.roles.map((r) => [r.label, { ...r.cells }])));
+    setDirty(false);
+  }, [model]);
+
+  // Synchronise le rôle sélectionné avec les libellés réellement disponibles.
+  useEffect(() => {
+    const labels = model.roles.map((r) => r.label);
+    if (labels.length && !labels.includes(selectedRole)) {
+      setSelectedRole(labels[0]);
+    }
+  }, [model, selectedRole]);
+
+  const roleCards = model.roles.map((r) => ({
+    label: r.label,
+    system: r.system,
+    sub:
+      r.summary
+        ? `${r.summary.permissions} permissions • ${r.summary.domains} domaines`
+        : `${r.mockUsers ?? ROLES_PERM.find((p) => p.role === r.label)?.utilisateurs ?? 0} utilisateurs`,
+  }));
+
+  const selectedRoleCard = roleCards.find((r) => r.label === selectedRole);
+
+  const toggleDroit = (domainCode: string, idx: number) => {
     setDroits((d) => ({
       ...d,
-      [domaine]: { ...d[domaine], [role]: d[domaine][role].map((v, i) => (i === idx ? !v : v)) },
+      [selectedRole]: {
+        ...d[selectedRole],
+        [domainCode]: d[selectedRole][domainCode].map((v, i) => (i === idx ? !v : v)),
+      },
     }));
     setDirty(true);
   };
@@ -60,6 +219,16 @@ export default function PermissionsPage() {
 
   return (
     <div className="space-y-5">
+      {loadError && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600">
+          <AlertTriangle className="size-4 shrink-0" />
+          <p className="flex-1">{loadError}</p>
+          <Button size="sm" variant="outline" className="text-[11px] font-bold" onClick={loadRoles}>
+            Réessayer
+          </Button>
+        </div>
+      )}
+
       {/* En-tête */}
       <div className="flex flex-wrap items-start gap-3">
         <Button
@@ -96,23 +265,25 @@ export default function PermissionsPage() {
 
       {/* Cartes rôles */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-        {ROLES_PERM.map((r) => {
-          const active = selectedRole === r.role;
+        {roleCards.map((r) => {
+          const active = selectedRole === r.label;
           return (
             <button
-              key={r.role}
+              key={r.label}
               type="button"
-              onClick={() => setSelectedRole(r.role)}
+              onClick={() => setSelectedRole(r.label)}
               className={cn(
                 "rounded-xl border p-3 text-left transition-colors",
                 active ? "border-primary/50 bg-primary/5" : "border-border bg-white hover:border-primary/40",
               )}
             >
               <Badge variant="outline" className="border-0 bg-muted px-1.5 text-[10px] font-bold text-muted-foreground">
-                Système
+                {r.system ? "Système" : "Personnalisé"}
               </Badge>
-              <p className="mt-1.5 text-[13px] font-extrabold">{r.role}</p>
-              <p className="text-[11px] text-muted-foreground">{r.utilisateurs} utilisateurs</p>
+              <p className="mt-1.5 text-[13px] font-extrabold">{r.label}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {loading && !rolesData ? "Chargement…" : r.sub}
+              </p>
               {active && <p className="mt-1 text-[10px] font-bold text-primary">Sélectionné</p>}
             </button>
           );
@@ -124,7 +295,11 @@ export default function PermissionsPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold">{selectedRole}</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Pilotage de plusieurs agences</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {selectedRoleCard?.system === false
+                ? "Rôle personnalisé de l'organisation"
+                : "Pilotage de plusieurs agences"}
+            </p>
           </div>
           <Button
             size="sm"
@@ -173,7 +348,7 @@ export default function PermissionsPage() {
                   <Label className="mb-1.5 text-xs font-semibold">{label}</Label>
                   <Select value={value} onValueChange={(v) => set(v ?? "")}>
                     <SelectTrigger className="w-full text-[13px] data-[size=default]:h-9">
-                      <SelectValue />
+                      <SelectValue>{value}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {options.map((o) => (
@@ -198,18 +373,18 @@ export default function PermissionsPage() {
                 <thead>
                   <tr className="text-left text-[10px] font-bold tracking-wide text-muted-foreground">
                     <th className="pb-2">DOMAINE ET ACTIONS</th>
-                    {ROLES_COLONNES.map((r) => (
-                      <th key={r} className={cn("pb-2 text-center", r === selectedRole && "text-primary")}>
-                        {r}
+                    {model.columns.map((c) => (
+                      <th key={c.code} className="pb-2 text-center">
+                        {c.label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {MATRICE.map((d) => (
-                    <tr key={d.domaine}>
+                  {model.domains.map((d) => (
+                    <tr key={d.code}>
                       <td className="py-2.5 pr-2">
-                        <p className="font-bold">{d.domaine}</p>
+                        <p className="font-bold">{d.label}</p>
                         <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                           {d.sub}
                           {d.sensibles.length > 0 && (
@@ -219,39 +394,41 @@ export default function PermissionsPage() {
                           )}
                         </p>
                       </td>
-                      {ROLES_COLONNES.map((r) => (
-                        <td key={r} className="py-2.5 text-center">
-                          <div className="flex items-center justify-center gap-1" title={d.actions.join(" • ")}>
-                            {d.actions.map((a, i) => {
-                              const on = droits[d.domaine][r][i];
-                              const sensible = d.sensibles.includes(a);
-                              return (
-                                <button
-                                  key={a}
-                                  type="button"
-                                  onClick={() => toggleDroit(d.domaine, r, i)}
-                                  title={`${r} • ${a}${sensible ? " (sensible)" : ""}`}
-                                  aria-label={`${r} ${a} ${on ? "activé" : "désactivé"}`}
-                                  className={cn(
-                                    "flex size-5 items-center justify-center rounded border transition-colors",
-                                    on
-                                      ? sensible
-                                        ? "border-amber-400 bg-amber-100 text-amber-700"
-                                        : "border-primary bg-primary text-primary-foreground"
-                                      : "border-border text-transparent hover:border-primary",
-                                  )}
-                                >
-                                  <Check className="size-3" />
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </td>
-                      ))}
+                      {model.columns.map((c, idx) => {
+                        const on = droits[selectedRole]?.[d.code]?.[idx];
+                        const sensible = d.sensibles
+                          .map((s) => s.toLowerCase())
+                          .includes(c.label.toLowerCase());
+                        return (
+                          <td key={c.code} className="py-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => toggleDroit(d.code, idx)}
+                              title={`${selectedRole} • ${d.label} • ${c.label}${sensible ? " (sensible)" : ""}`}
+                              aria-label={`${selectedRole} ${d.label} ${c.label} ${on ? "activé" : "désactivé"}`}
+                              className={cn(
+                                "flex size-5 items-center justify-center rounded border transition-colors",
+                                on
+                                  ? sensible
+                                    ? "border-amber-400 bg-amber-100 text-amber-700"
+                                    : "border-primary bg-primary text-primary-foreground"
+                                  : "border-border text-transparent hover:border-primary",
+                              )}
+                            >
+                              <Check className="size-3" />
+                            </button>
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {model.domains.length === 0 && (
+                <p className="py-6 text-center text-[13px] text-muted-foreground">
+                  Aucun domaine de permissions disponible.
+                </p>
+              )}
             </div>
           </>
         )}
@@ -318,14 +495,16 @@ export default function PermissionsPage() {
             Modèle
           </Label>
           <div className="flex gap-2">
-            <Select value={modele} onValueChange={(v) => setModele(v ?? "Manager")}>
+            <Select value={modele} onValueChange={(v) => setModele(v ?? roleCards[0]?.label ?? "Manager")}>
               <SelectTrigger id="perm-modele" className="w-full text-[13px] data-[size=default]:h-9">
-                <SelectValue />
+                <SelectValue>
+                  {roleCards.find((r) => r.label === modele)?.label ?? roleCards[0]?.label ?? "Modèle"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {ROLES_PERM.map((r) => (
-                  <SelectItem key={r.role} value={r.role}>
-                    {r.role}
+                {roleCards.map((r) => (
+                  <SelectItem key={r.label} value={r.label}>
+                    {r.label}
                   </SelectItem>
                 ))}
               </SelectContent>
