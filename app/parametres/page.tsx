@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   Banknote,
   Bell,
@@ -16,6 +16,7 @@ import {
   RefreshCw,
   ScrollText,
   Search,
+  Settings,
   ShieldCheck,
   Shirt,
   Tags,
@@ -27,74 +28,191 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { getSettingsAction } from "@/actions/AdminAction";
+import type {
+  SettingsCard,
+  SettingsData,
+  SettingsGroup,
+} from "@/app/parametres/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
-interface Categorie {
-  groupe: "STRUCTURE" | "OPÉRATIONS" | "FINANCE & SERVICES" | "PLATEFORME";
-  icon: React.ElementType;
-  title: string;
-  sub: string;
-  updated: string;
-  statut: "À jour" | "Action requise" | "Modifié";
-  route: string;
-}
+// --------------------------- Mappings UI (icônes & routes par clé de carte) ---------------------------
 
-const CATEGORIES: Categorie[] = [
-  { groupe: "STRUCTURE", icon: Building2, title: "Organisation & agences", sub: "4 agences actives", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/organisation" },
-  { groupe: "STRUCTURE", icon: Users, title: "Utilisateurs & rôles", sub: "28 utilisateurs • 6 rôles", updated: "Modifié il y a 3 jours", statut: "Action requise", route: "/equipe" },
-  { groupe: "STRUCTURE", icon: Package, title: "Catalogue", sub: "86 articles • 12 catégories", updated: "Modifié il y a 2 h", statut: "À jour", route: "/articles" },
-  { groupe: "STRUCTURE", icon: Hash, title: "Codes dépôt", sub: "4 modèles par agence", updated: "Modifié il y a 2 h", statut: "Modifié", route: "/parametres/operations" },
-  { groupe: "OPÉRATIONS", icon: Clock, title: "Délais de traitement", sub: "Classique, Express, Repassage", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/operations" },
-  { groupe: "OPÉRATIONS", icon: Megaphone, title: "Promotions", sub: "3 campagnes actives", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/promotions" },
-  { groupe: "OPÉRATIONS", icon: Heart, title: "Fidélité", sub: "5 % • 1 000 pts disponibles", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/promotions" },
-  { groupe: "OPÉRATIONS", icon: Shirt, title: "Cycle atelier", sub: "Laveur et Classeur actifs", updated: "Modifié il y a 2 h", statut: "Modifié", route: "/parametres/operations" },
-  { groupe: "FINANCE & SERVICES", icon: Banknote, title: "Tarification", sub: "Pièce + kilo • 1 200 FCFA/kg", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/operations" },
-  { groupe: "FINANCE & SERVICES", icon: Truck, title: "Collecte & livraison", sub: "2 zones • frais configurés", updated: "Modifié il y a 3 jours", statut: "Action requise", route: "/parametres/collecte" },
-  { groupe: "FINANCE & SERVICES", icon: Wallet, title: "Paiements", sub: "Espèces, carte, Mobile Money", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/paiements" },
-  { groupe: "FINANCE & SERVICES", icon: Bell, title: "Notifications", sub: "SMS et e-mail automatiques", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/notifications" },
-  { groupe: "PLATEFORME", icon: Palette, title: "Branding", sub: "Logo et ticket personnalisés", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/branding" },
-  { groupe: "PLATEFORME", icon: ReceiptText, title: "Reçus & tickets", sub: "Tickets 58/80 mm • Facture A4", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/recus" },
-  { groupe: "PLATEFORME", icon: ShieldCheck, title: "Sécurité", sub: "MFA requis pour 8 admins", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/securite" },
-  { groupe: "PLATEFORME", icon: WifiOff, title: "Mode hors ligne", sub: "File locale • synchro auto", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/hors-ligne" },
-  { groupe: "PLATEFORME", icon: ScrollText, title: "Audit", sub: "Conservation 24 mois", updated: "Modifié il y a 2 h", statut: "À jour", route: "/parametres/audit" },
-];
-
-const GROUPES = ["Tous", "Organisation", "Opérations", "Finance", "Plateforme"] as const;
-
-const statutBadge: Record<Categorie["statut"], string> = {
-  "À jour": "bg-emerald-50 text-emerald-700",
-  "Action requise": "bg-amber-100 text-amber-700",
-  Modifié: "bg-sky-100 text-sky-700",
+const ICON_BY_KEY: Record<string, React.ElementType> = {
+  organisation: Building2,
+  agencies: Building2,
+  users: Users,
+  users_roles: Users,
+  catalogue: Package,
+  catalog: Package,
+  deposit_codes: Hash,
+  codes_depot: Hash,
+  processing_delays: Clock,
+  processing_times: Clock,
+  promotions: Megaphone,
+  loyalty: Heart,
+  fidelity: Heart,
+  workshop_cycle: Shirt,
+  workshop: Shirt,
+  pricing: Banknote,
+  tarif: Banknote,
+  collection_delivery: Truck,
+  collection: Truck,
+  payments: Wallet,
+  paiements: Wallet,
+  notifications: Bell,
+  branding: Palette,
+  receipts: ReceiptText,
+  receipts_tickets: ReceiptText,
+  security: ShieldCheck,
+  offline_mode: WifiOff,
+  audit: ScrollText,
 };
 
-const MODIFS = [
-  ["Aujourd'hui • 10:28", "Cycle atelier • étape Classeur activée", "Aïcha Koné", "Toutes agences"],
-  ["Aujourd'hui • 09:14", "Frais de livraison Bingerville mis à 2 000 FCFA", "Moussa K.", "Bingerville"],
-  ["Hier • 17:52", "Rôle Responsable atelier mis à jour", "Aïcha Koné", "Réseau"],
-];
+const ROUTE_BY_KEY: Record<string, string> = {
+  organisation: "/parametres/organisation",
+  agencies: "/parametres/organisation",
+  users: "/equipe",
+  users_roles: "/equipe",
+  catalogue: "/articles",
+  catalog: "/articles",
+  deposit_codes: "/parametres/operations",
+  codes_depot: "/parametres/operations",
+  processing_delays: "/parametres/operations",
+  processing_times: "/parametres/operations",
+  promotions: "/parametres/promotions",
+  loyalty: "/parametres/promotions",
+  fidelity: "/parametres/promotions",
+  workshop_cycle: "/parametres/operations",
+  workshop: "/parametres/operations",
+  pricing: "/parametres/operations",
+  tarif: "/parametres/operations",
+  collection_delivery: "/parametres/collecte",
+  collection: "/parametres/collecte",
+  payments: "/parametres/paiements",
+  paiements: "/parametres/paiements",
+  notifications: "/parametres/notifications",
+  branding: "/parametres/branding",
+  receipts: "/parametres/recus",
+  receipts_tickets: "/parametres/recus",
+  security: "/parametres/securite",
+  offline_mode: "/parametres/hors-ligne",
+  audit: "/parametres/audit",
+};
+
+function cardIcon(key: string): React.ElementType {
+  return ICON_BY_KEY[key] ?? Settings;
+}
+
+function cardRoute(key: string): string {
+  return ROUTE_BY_KEY[key] ?? `/parametres/${key.replace(/_/g, "-")}`;
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  up_to_date: "bg-emerald-50 text-emerald-700",
+  to_check: "bg-sky-100 text-sky-700",
+  action_required: "bg-amber-100 text-amber-700",
+};
+
+function formatChangeDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const now = new Date();
+  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const sameDay = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay) return `Aujourd'hui • ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `Hier • ${time}`;
+  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} • ${time}`;
+}
 
 export default function ParametresHub() {
   const { updatePath } = useGlobalData();
+  const { logout } = useAuth();
+  const [, startTransition] = useTransition();
+
+  const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
   const [search, setSearch] = useState("");
-  const [groupe, setGroupe] = useState<(typeof GROUPES)[number]>("Tous");
+  const [filterCode, setFilterCode] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return CATEGORIES.filter((c) => {
-      if (groupe !== "Tous") {
-        const map: Record<string, string> = { Organisation: "STRUCTURE", Opérations: "OPÉRATIONS", Finance: "FINANCE & SERVICES", Plateforme: "PLATEFORME" };
-        if (c.groupe !== map[groupe]) return false;
+  useEffect(() => {
+    let cancelled = false;
+    startTransition(async () => {
+      try {
+        const result = await getSettingsAction();
+        if (cancelled) return;
+        if (!result.success) {
+          setLoadError(result.error);
+          if (result.error.includes("Non autorisé")) logout();
+          toast.error("Impossible de charger les paramètres", { description: result.error });
+          setLoading(false);
+          return;
+        }
+        setSettings(result.data.data);
+        setLoadError(null);
+        setLoading(false);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Impossible de charger les paramètres.";
+        setLoadError(message);
+        toast.error("Impossible de charger les paramètres", { description: message });
+        setLoading(false);
       }
-      if (q && !`${c.title} ${c.sub}`.toLowerCase().includes(q)) return false;
-      return true;
     });
-  }, [search, groupe]);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAttempt, logout, startTransition]);
 
-  const groupesAffiches = (["STRUCTURE", "OPÉRATIONS", "FINANCE & SERVICES", "PLATEFORME"] as const).filter((g) =>
-    filtered.some((c) => c.groupe === g),
-  );
+  const retryLoading = () => {
+    setLoadError(null);
+    setLoading(true);
+    setLoadAttempt((a) => a + 1);
+  };
+
+  const filterLabels = useMemo(() => {
+    if (!settings) return [];
+    return settings.filters.map((f) => ({ code: f.code, label: f.label }));
+  }, [settings]);
+
+  const matchesFilter = (card: SettingsCard, code: string) => card.group === code || card.key === code;
+
+  const visibleGroups = useMemo<SettingsGroup[]>(() => {
+    if (!settings) return [];
+    const groups = settings.groups;
+    if (!filterCode) return groups;
+    return groups
+      .filter((g) => g.code === filterCode || g.cards.some((c) => matchesFilter(c, filterCode)))
+      .map((g) =>
+        g.code === filterCode
+          ? g
+          : { ...g, cards: g.cards.filter((c) => matchesFilter(c, filterCode)) },
+      );
+  }, [settings, filterCode]);
+
+  const filteredGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return visibleGroups;
+    return visibleGroups
+      .map((g) => ({
+        ...g,
+        cards: g.cards.filter((c) => `${c.label} ${c.summary ?? ""}`.toLowerCase().includes(q)),
+      }))
+      .filter((g) => g.cards.length > 0);
+  }, [visibleGroups, search]);
+
+  const totalCards = filteredGroups.reduce((acc, g) => acc + g.cards.length, 0);
+  const summary = settings?.summary;
+  const progress = summary && summary.categories > 0 ? Math.round((summary.up_to_date / summary.categories) * 100) : 0;
 
   return (
     <div className="space-y-5">
@@ -117,6 +235,15 @@ export default function ParametresHub() {
         </Button>
       </div>
 
+      {loadError && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p>{loadError}</p>
+          <Button variant="outline" size="sm" onClick={retryLoading}>
+            Réessayer
+          </Button>
+        </div>
+      )}
+
       {/* Recherche + état */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="rounded-xl border border-border bg-white p-4 xl:col-span-2">
@@ -133,73 +260,111 @@ export default function ParametresHub() {
             </kbd>
           </div>
           <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {GROUPES.map((g) => (
+            <Button
+              variant={!filterCode ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setFilterCode(null)}
+              className="h-7 rounded-full px-3 text-[11px] font-bold"
+            >
+              Tous
+            </Button>
+            {filterLabels.map((f) => (
               <Button
-                key={g}
-                variant={groupe === g ? "default" : "ghost"}
+                key={f.code}
+                variant={filterCode === f.code ? "default" : "ghost"}
                 size="sm"
-                onClick={() => setGroupe(g)}
+                onClick={() => setFilterCode(f.code)}
                 className="h-7 rounded-full px-3 text-[11px] font-bold"
               >
-                {g}
+                {f.label}
               </Button>
             ))}
           </div>
         </div>
         <div className="rounded-xl border border-border bg-white p-4">
           <h2 className="text-sm font-bold">État global</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">17 catégories contrôlées</p>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full w-[87%] rounded-full bg-emerald-500" />
-          </div>
-          <p className="mt-1.5 flex justify-between text-[11px]">
-            <span className="text-muted-foreground">14 à jour</span>
-            <span className="font-bold text-amber-600">2 à vérifier</span>
-          </p>
+          {loading ? (
+            <div className="mt-2 space-y-2">
+              <Skeleton className="h-3 w-40" />
+              <Skeleton className="h-1.5 w-full" />
+              <Skeleton className="h-3 w-32" />
+            </div>
+          ) : summary ? (
+            <>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{summary.label}</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${progress}%` }} />
+              </div>
+              <p className="mt-1.5 flex justify-between text-[11px]">
+                <span className="text-muted-foreground">{summary.up_to_date} à jour</span>
+                <span className="font-bold text-amber-600">{summary.to_check} à vérifier</span>
+              </p>
+            </>
+          ) : null}
         </div>
       </div>
 
       {/* Catégories */}
-      {groupesAffiches.map((g) => (
-        <div key={g}>
-          <p className="mb-2 flex items-center justify-between px-1 text-[10px] font-bold tracking-[0.14em] text-muted-foreground">
-            {g}
-            <span className="font-semibold normal-case tracking-normal">
-              {filtered.filter((c) => c.groupe === g).length} catégories
-            </span>
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {filtered
-              .filter((c) => c.groupe === g)
-              .map((c) => (
-                <button
-                  key={c.title}
-                  type="button"
-                  onClick={() => updatePath(c.route)}
-                  className="rounded-xl border border-border bg-white p-4 text-left transition-colors hover:border-primary/40"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="flex size-9 items-center justify-center rounded-lg bg-muted/60">
-                      <c.icon className="size-4 text-muted-foreground" />
-                    </span>
-                    <Badge variant="outline" className={cn("border-0 text-[10px] font-bold", statutBadge[c.statut])}>
-                      {c.statut}
-                    </Badge>
-                  </div>
-                  <p className="mt-2.5 text-[13px] font-extrabold">{c.title}</p>
-                  <p className="text-[11px] text-muted-foreground">{c.sub}</p>
-                  <p className="mt-2 flex items-center justify-between text-[11px]">
-                    <span className="text-muted-foreground">{c.updated}</span>
-                    <span className="font-bold text-primary">Configurer →</span>
-                  </p>
-                </button>
-              ))}
+      {loading ? (
+        <div className="rounded-xl border border-border bg-white p-4">
+          <Skeleton className="h-3 w-24" />
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 rounded-xl" />
+            ))}
           </div>
         </div>
-      ))}
-      {filtered.length === 0 && (
+      ) : (
+        filteredGroups.map((g) => (
+          <div key={g.code}>
+            <p className="mb-2 flex items-center justify-between px-1 text-[10px] font-bold tracking-[0.14em] text-muted-foreground uppercase">
+              {g.label}
+              <span className="font-semibold normal-case tracking-normal">
+                {g.cards.length} {g.cards.length > 1 ? "catégories" : "catégorie"}
+              </span>
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {g.cards.map((c) => {
+                const Icon = cardIcon(c.key);
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => updatePath(cardRoute(c.key))}
+                    className="rounded-xl border border-border bg-white p-4 text-left transition-colors hover:border-primary/40"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="flex size-9 items-center justify-center rounded-lg bg-muted/60">
+                        <Icon className="size-4 text-muted-foreground" />
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "border-0 text-[10px] font-bold",
+                          STATUS_BADGE[c.status] ?? "bg-muted text-foreground",
+                        )}
+                      >
+                        {c.status_label}
+                      </Badge>
+                    </div>
+                    <p className="mt-2.5 text-[13px] font-extrabold">{c.label}</p>
+                    <p className="text-[11px] text-muted-foreground">{c.summary}</p>
+                    <p className="mt-2 flex items-center justify-between text-[11px]">
+                      <span className="text-muted-foreground">{c.updated_relative ?? "—"}</span>
+                      <span className="font-bold text-primary">Configurer →</span>
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
+      {!loading && totalCards === 0 && (
         <p className="rounded-xl border border-border bg-white p-8 text-center text-[13px] text-muted-foreground">
-          Aucune catégorie ne correspond à « {search} ».
+          {search
+            ? `Aucune catégorie ne correspond à « ${search} ».`
+            : "Aucun paramètre disponible pour ce filtre."}
         </p>
       )}
 
@@ -220,16 +385,21 @@ export default function ParametresHub() {
           </Button>
         </div>
         <div className="mt-3 divide-y divide-border">
-          {MODIFS.map(([quand, quoi, qui, ou], i) => (
-            <div key={i} className="flex flex-wrap items-center gap-2 py-2.5 text-xs">
-              <span className="w-32 shrink-0 text-muted-foreground">{quand}</span>
-              <p className="min-w-0 flex-1 font-semibold">{quoi}</p>
-              <span className="text-muted-foreground">{qui}</span>
-              <Badge variant="outline" className="border-0 bg-muted text-[10px] font-semibold text-foreground">
-                {ou}
-              </Badge>
-            </div>
-          ))}
+          {loading && <Skeleton className="h-10 w-full rounded-lg" />}
+          {!loading && (settings?.recent_changes ?? []).length === 0 && (
+            <p className="py-2.5 text-xs text-muted-foreground">Aucune modification enregistrée.</p>
+          )}
+          {!loading &&
+            (settings?.recent_changes ?? []).map((m, i) => (
+              <div key={`${m.at}-${i}`} className="flex flex-wrap items-center gap-2 py-2.5 text-xs">
+                <span className="w-32 shrink-0 text-muted-foreground">{formatChangeDate(m.at)}</span>
+                <p className="min-w-0 flex-1 font-semibold">{m.description}</p>
+                <span className="text-muted-foreground">{m.by}</span>
+                <Badge variant="outline" className="border-0 bg-muted text-[10px] font-semibold text-foreground">
+                  {m.scope}
+                </Badge>
+              </div>
+            ))}
         </div>
       </div>
 

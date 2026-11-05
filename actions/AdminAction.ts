@@ -29,6 +29,7 @@ import type {
   ArticlesHistoryEnvelope,
   RetrievalCenterEnvelope,
 } from "@/lib/types";
+import type { SettingsEnvelope } from "@/app/parametres/types";
 
 
 
@@ -398,6 +399,22 @@ export async function getCashCenterAction(): Promise<CashCenterActionResult> {
       throw new Error("Réponse inattendue du serveur pour le centre de caisse.");
     }
     return { success: true, data: data as CashCenterData };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ------------------------- PARAMÈTRES ---------------------------------
+export async function getSettingsAction(): Promise<
+  | { success: true; data: SettingsEnvelope }
+  | { success: false; error: string }
+> {
+  try {
+    const result = await api.get("/settings");
+    if (!result || !result.data || !result.data.summary || !Array.isArray(result.data.groups)) {
+      throw new Error("Réponse inattendue du serveur pour les paramètres.");
+    }
+    return { success: true, data: result as SettingsEnvelope };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
