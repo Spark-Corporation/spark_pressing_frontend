@@ -83,6 +83,8 @@ const METRIQUES: [Metrique, string][] = [
   ["panier", "Panier moyen"],
 ];
 
+const AGENCES_PAGE_SIZE = 5;
+
 const DONUT_COLORS = [
   { cls: "stroke-emerald-500", dot: "bg-emerald-500" },
   { cls: "stroke-secondary", dot: "bg-secondary" },
@@ -110,6 +112,10 @@ export default function RapportsPage() {
   const [agence, setAgence] = useState("all");
   const [comparaison, setComparaison] = useState("vs période précédente");
   const [metrique, setMetrique] = useState<Metrique>("ca");
+  const [agencePage, setAgencePage] = useState(1);
+  const [agenceOptions, setAgenceOptions] = useState<{ value: string; label: string }[]>([
+    { value: "all", label: "Toutes les agences" },
+  ]);
 
   const loadOverview = useCallback(() => {
     void handleApiAction({
@@ -119,8 +125,17 @@ export default function RapportsPage() {
       showErrorToast: false,
       logout,
       onSuccess: (res) => {
-        setData(res as ReportsOverviewData);
+        const overview = res as ReportsOverviewData;
+        setData(overview);
         setLoadError(null);
+        // On conserve la liste complète des agences, même lorsqu'un filtre est actif.
+        setAgenceOptions((prev) => {
+          const merged = new Map(prev.map((o) => [o.value, o.label]));
+          for (const a of overview.agencies ?? []) {
+            merged.set(String(a.agency_id), a.name);
+          }
+          return Array.from(merged, ([value, label]) => ({ value, label }));
+        });
       },
       onError: setLoadError,
     });
@@ -253,6 +268,21 @@ export default function RapportsPage() {
     [data],
   );
 
+  const agencesPagination = useMemo(() => {
+    const total = agencesRows.length;
+    const totalPages = Math.max(1, Math.ceil(total / AGENCES_PAGE_SIZE));
+    const safePage = Math.min(agencePage, totalPages);
+    const start = (safePage - 1) * AGENCES_PAGE_SIZE;
+    return {
+      total,
+      totalPages,
+      page: safePage,
+      start: total > 0 ? start + 1 : 0,
+      end: Math.min(start + AGENCES_PAGE_SIZE, total),
+      rows: agencesRows.slice(start, start + AGENCES_PAGE_SIZE),
+    };
+  }, [agencesRows, agencePage]);
+
   return (
     <div className="space-y-5">
       {loadError && (
@@ -305,7 +335,14 @@ export default function RapportsPage() {
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-white p-3">
         <div className="min-w-40 flex-1">
           <p className="mb-1 text-[10px] font-bold text-muted-foreground">Période</p>
-          <Select value={preset} onValueChange={(v) => setPreset((v as ReportsPreset) ?? preset)}>
+          <Select
+            items={PRESETS}
+            value={preset}
+            onValueChange={(v) => {
+              setPreset((v as ReportsPreset) ?? preset);
+              setAgencePage(1);
+            }}
+          >
             <SelectTrigger className="w-full text-xs data-[size=default]:h-9">
               <SelectValue />
             </SelectTrigger>
@@ -320,15 +357,21 @@ export default function RapportsPage() {
         </div>
         <div className="min-w-40 flex-1">
           <p className="mb-1 text-[10px] font-bold text-muted-foreground">Agence</p>
-          <Select value={agence} onValueChange={(v) => setAgence(v ?? "all")}>
+          <Select
+            items={agenceOptions}
+            value={agence}
+            onValueChange={(v) => {
+              setAgence(v ?? "all");
+              setAgencePage(1);
+            }}
+          >
             <SelectTrigger className="w-full text-xs data-[size=default]:h-9">
               <SelectValue placeholder="Agence" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Toutes les agences</SelectItem>
-              {(data?.agencies ?? []).map((a) => (
-                <SelectItem key={a.agency_id} value={String(a.agency_id)}>
-                  {a.name}
+              {agenceOptions.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -352,20 +395,15 @@ export default function RapportsPage() {
               key={p.value}
               variant={preset === p.value ? "default" : "outline"}
               size="sm"
-              onClick={() => setPreset(p.value)}
+              onClick={() => {
+                setPreset(p.value);
+                setAgencePage(1);
+              }}
               className="h-9 px-3 text-[11px] font-bold"
             >
               {p.label}
             </Button>
           ))}
-          <Button
-            size="sm"
-            className="h-9 px-4 text-[11px] font-bold"
-            onClick={loadOverview}
-            disabled={loading}
-          >
-            Appliquer
-          </Button>
         </div>
       </div>
 
@@ -512,7 +550,7 @@ export default function RapportsPage() {
                     </TableCell>
                   </TableRow>
                 )}
-                {agencesRows.map((a) => (
+                {agencesPagination.rows.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell className="text-xs font-bold">{a.nom}</TableCell>
                     <TableCell className="text-xs">{a.ca}</TableCell>
@@ -528,13 +566,27 @@ export default function RapportsPage() {
               </TableBody>
             </Table>
           </div>
-          <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>{agencesRows.length} résultats</span>
-            <span className="flex items-center gap-1">
-              <Button variant="default" size="icon-sm" className="text-[11px] font-bold">1</Button>
-              <Button variant="outline" size="icon-sm" className="text-[11px] font-bold" onClick={() => toast.info("Page 2", { description: "Données consolidées suivantes." })}>2</Button>
-              <Button variant="outline" size="icon-sm" className="text-[11px] font-bold" onClick={() => toast.info("Page 3", { description: "Données consolidées suivantes." })}>3</Button>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span>
+              {agencesPagination.total > 0
+                ? `${agencesPagination.start}–${agencesPagination.end} sur ${agencesPagination.total} résultats`
+                : "0 résultat"}
             </span>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: agencesPagination.totalPages }, (_, i) => i + 1).map((p) => (
+                <Button
+                  key={p}
+                  variant={p === agencesPagination.page ? "default" : "outline"}
+                  size="icon-sm"
+                  onClick={() => setAgencePage(p)}
+                  className="text-[11px] font-bold"
+                  aria-label={`Page ${p}`}
+                  aria-current={p === agencesPagination.page ? "page" : undefined}
+                >
+                  {p}
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
 

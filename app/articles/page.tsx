@@ -496,7 +496,12 @@ export default function ArticlesPage() {
               </div>
               <Select value={categorie} onValueChange={(v) => { setCategorie(v ?? "Toutes les catégories"); resetPage(); }}>
                 <SelectTrigger className="w-auto text-xs data-[size=default]:h-9">
-                  <SelectValue placeholder="Catégorie" />
+                  <SelectValue placeholder="Catégorie" >
+                    {(value) => {
+                      const category = categories.find((c) => String(c.id) === value);
+                      return category ? category.name : "Toutes les catégories";
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Toutes les catégories">Toutes les catégories</SelectItem>
