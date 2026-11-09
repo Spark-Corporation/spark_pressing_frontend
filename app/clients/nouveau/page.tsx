@@ -1,16 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowLeft,
   CheckCircle,
   CircleAlert,
-  CloudOff,
   ExternalLink,
   FileText,
   Heart,
   History,
+  Loader2,
   Mail,
   MessageCircle,
   MessageSquare,
@@ -20,18 +20,24 @@ import {
   ScanSearch,
   ShieldCheck,
   User,
-  UserCheck,
   UserSearch,
-  WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { handleApiAction } from "@/functions/handleResponseApi";
+import {
+  checkClientDuplicatesAction,
+  createClientAction,
+  getNetworkOverviewAction,
+} from "@/actions/AdminAction";
+import type { NetworkOverviewData } from "@/app/multi-agences/types";
+import type { ClientCreatePayload, ClientDuplicateMatch } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,16 +49,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AGENCES, findDuplicateByPhone } from "../data";
-
-const VILLES = [
-  "Bingerville — Faya",
-  "Bingerville — Cité",
-  "Cocody — Angré",
-  "Cocody — Riviera 3",
-  "Plateau",
-  "Marcory",
-];
 
 const GROUPES = ["Essentiel", "Argent", "Or", "Platine"];
 
@@ -62,6 +58,21 @@ const CONTACTS = [
   { value: "sms", label: "SMS", icon: MessageSquare },
   { value: "email", label: "E-mail", icon: Mail },
 ];
+
+/** Chiffres uniquement, sans l'indicatif 225 (format attendu par l'API). */
+function normalizePhoneValue(value: string): string {
+  let digits = value.replace(/\D/g, "");
+  if (digits.startsWith("225") && digits.length > 10) digits = digits.slice(3);
+  return digits;
+}
+
+/** Mot de passe aléatoire pour le compte client (réinitialisable par le client). */
+function generatePassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  const random = new Uint32Array(12);
+  crypto.getRandomValues(random);
+  return Array.from(random, (n) => chars[n % chars.length]).join("");
+}
 
 function CardIcon({ icon: Icon }: { icon: React.ElementType }) {
   return (
@@ -82,17 +93,16 @@ function Required({ children }: { children: React.ReactNode }) {
 export default function NouveauClientPage() {
   const router = useRouter();
   const { updatePath } = useGlobalData();
+  const { logout } = useAuth();
 
-  const [nom, setNom] = useState("Koné");
-  const [prenoms, setPrenoms] = useState("Aminata");
-  const [tel1, setTel1] = useState("+225 07 48 22 16 03");
-  const [tel2, setTel2] = useState("+225 00 00 00 00 00");
-  const [email, setEmail] = useState("aminata.kone@gmail");
-  const [adresse, setAdresse] = useState(
-    "Rue des Jardins, résidence Les Lauriers",
-  );
-  const [ville, setVille] = useState("Bingerville — Faya");
-  const [agence, setAgence] = useState("Bingerville");
+  const [nom, setNom] = useState("");
+  const [prenoms, setPrenoms] = useState("");
+  const [tel1, setTel1] = useState("");
+  const [tel2, setTel2] = useState("");
+  const [email, setEmail] = useState("");
+  const [adresse, setAdresse] = useState("");
+  const [ville, setVille] = useState("");
+  const [agenceId, setAgenceId] = useState<string | null>(null);
   const [contact, setContact] = useState("whatsapp");
   const [groupe, setGroupe] = useState("Essentiel");
   const [parrainage, setParrainage] = useState("");
@@ -102,17 +112,115 @@ export default function NouveauClientPage() {
   const [consentEmails, setConsentEmails] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  // Agences chargées depuis l'API (agency_id réel requis par POST /clients)
+  const [agences, setAgences] = useState<{ id: number; name: string }[]>([]);
+  const [agencesLoading, setAgencesLoading] = useState(true);
+
+  // Contrôle des doublons côté serveur (GET /clients/duplicates)
+  const [dupState, setDupState] = useState<"idle" | "checking" | "checked">("idle");
+  const [duplicates, setDuplicates] = useState<ClientDuplicateMatch[]>([]);
+  const [dupError, setDupError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const dupReqRef = useRef(0);
+
+  const fullname = `${prenoms} ${nom}`.trim();
   const emailInvalid = email.trim() !== "" && !/.+@.+\..+/.test(email.trim());
-  const duplicate = useMemo(() => findDuplicateByPhone(tel1), [tel1]);
+
+  const phoneDup = useMemo(() => {
+    const typed = normalizePhoneValue(tel1);
+    if (typed.length < 6) return undefined;
+    return duplicates.find((d) => {
+      const known = normalizePhoneValue(d.phone_number);
+      return known.endsWith(typed) || typed.endsWith(known);
+    });
+  }, [duplicates, tel1]);
 
   const missing = {
     nom: nom.trim() === "",
     prenoms: prenoms.trim() === "",
     tel1: tel1.trim() === "",
-    ville: ville === "",
-    agence: agence === "",
+    ville: ville.trim() === "",
+    agence: agenceId === null,
   };
   const hasMissing = Object.values(missing).some(Boolean);
+
+  /** Interroge l'API sur le téléphone (principal/secondaire) et l'e-mail saisis. */
+  const runDuplicateCheck = async (): Promise<ClientDuplicateMatch[]> => {
+    const phone1 = normalizePhoneValue(tel1);
+    const phone2 = normalizePhoneValue(tel2);
+    const mail = email.trim();
+    const checks: { phone?: string; email?: string }[] = [];
+    if (phone1) checks.push({ phone: phone1 });
+    if (phone2 && phone2 !== phone1) checks.push({ phone: phone2 });
+    if (mail) checks.push({ email: mail });
+
+    if (checks.length === 0) {
+      dupReqRef.current += 1;
+      setDupState("idle");
+      setDuplicates([]);
+      setDupError(null);
+      return [];
+    }
+
+    const reqId = (dupReqRef.current += 1);
+    setDupState("checking");
+
+    const results = await Promise.allSettled(
+      checks.map((c) => checkClientDuplicatesAction(c)),
+    );
+    if (reqId !== dupReqRef.current) return []; // réponse périmée, on ignore
+
+    const matches: ClientDuplicateMatch[] = [];
+    let failed = false;
+    for (const r of results) {
+      const v = r.status === "fulfilled" ? r.value : null;
+      if (v?.success) {
+        for (const m of v.data.matches) {
+          if (!matches.some((x) => x.id === m.id)) matches.push(m);
+        }
+      } else {
+        failed = true;
+      }
+    }
+
+    if (failed && matches.length === 0) {
+      setDupState("checked");
+      setDuplicates([]);
+      setDupError(
+        "Le serveur n'a pas répondu. La vérification sera refaite à l'enregistrement.",
+      );
+      return [];
+    }
+
+    setDupError(null);
+    setDuplicates(matches);
+    setDupState("checked");
+    return matches;
+  };
+
+  // Chargement des agences au montage
+  useEffect(() => {
+    handleApiAction({
+      action: getNetworkOverviewAction,
+      logout,
+      onSuccess: (res) => {
+        const data = res as NetworkOverviewData;
+        setAgences((data.agencies ?? []).map((a) => ({ id: a.agency_id, name: a.name })));
+        setAgencesLoading(false);
+      },
+      onError: () => setAgencesLoading(false),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Vérification des doublons avec rebond (600 ms) à chaque frappe
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void runDuplicateCheck();
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tel1, tel2, email]);
 
   const validate = (): boolean => {
     setSubmitted(true);
@@ -128,27 +236,62 @@ export default function NouveauClientPage() {
       });
       return false;
     }
-    if (duplicate) {
-      toast.error("Doublon détecté", {
-        description: `${duplicate.prenoms} ${duplicate.nom} • ${duplicate.code} existe déjà.`,
-      });
-      return false;
-    }
     return true;
   };
 
-  const handleSave = (withDepot: boolean) => {
-    if (!validate()) return;
-    if (withDepot) {
-      toast.success("Client enregistré", {
-        description: `${prenoms} ${nom} — création du dépôt…`,
+  const handleSave = async (withDepot: boolean) => {
+    if (saving || !validate()) return;
+    setSaving(true);
+    try {
+      // Dernière vérification des doublons juste avant l'enregistrement.
+      const matches = await runDuplicateCheck();
+      if (matches.length > 0) {
+        toast.error("Doublon détecté", {
+          description: `${matches[0].fullname} • ${matches[0].code} utilise déjà ce téléphone ou cet e-mail.`,
+        });
+        return;
+      }
+
+      const payload: ClientCreatePayload = {
+        fullname,
+        last_name: nom.trim(),
+        first_name: prenoms.trim(),
+        phone_number: normalizePhoneValue(tel1),
+        ...(email.trim() ? { email: email.trim() } : {}),
+        ...(adresse.trim() ? { address: adresse.trim() } : {}),
+        ...(ville ? { city: ville } : {}),
+        password: generatePassword(),
+        ...(parrainage.trim() ? { sponsor_code: parrainage.trim() } : {}),
+        ...(tel2.trim() ? { phone_secondary: normalizePhoneValue(tel2) } : {}),
+        ...(agenceId ? { agency_id: Number(agenceId) } : {}),
+        contact_preference: contact,
+        loyalty_tier: groupe,
+        consent_sms: consentSms,
+        consent_email: consentEmails,
+        status: actif,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      };
+
+      await handleApiAction({
+        action: createClientAction,
+        params: payload,
+        logout,
+        onSuccess: () => {
+          toast.success("Client enregistré", {
+            description: withDepot
+              ? `${fullname} — création du dépôt…`
+              : `${fullname} a été ajouté au répertoire.`,
+          });
+          if (withDepot) {
+            updatePath("/depots/nouveau");
+          } else {
+            updatePath("/clients");
+          }
+        },
       });
-    } else {
-      toast.success("Client enregistré", {
-        description: `${prenoms} ${nom} a été ajouté au répertoire.`,
-      });
+    } finally {
+      setSaving(false);
     }
-    updatePath("/clients");
   };
 
   const err = (invalid: boolean) =>
@@ -172,30 +315,12 @@ export default function NouveauClientPage() {
           <ArrowLeft className="size-4" />
         </Button>
         <div>
-          <h1 className="flex flex-wrap items-center gap-2 text-xl font-extrabold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">
             Nouveau client
-            <Badge
-              variant="outline"
-              className="border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700"
-            >
-              ● Brouillon local
-            </Badge>
           </h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
-            Créez une fiche complète en moins d&apos;une minute, même sans
-            connexion.
-          </p>
-        </div>
-      </div>
-
-      {/* Bandeau hors ligne */}
-      <div className="flex items-start gap-2.5 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-100">
-        <WifiOff className="mt-0.5 size-4 shrink-0 text-amber-600" />
-        <div className="text-xs">
-          <p className="font-bold text-amber-800">Saisie hors ligne active</p>
-          <p className="mt-0.5 text-amber-700">
-            Le brouillon est enregistré sur cet appareil. Il sera synchronisé
-            automatiquement dès le retour du réseau.
+            Créez une fiche complète en moins d&apos;une minute. Le téléphone et
+            l&apos;e-mail sont vérifiés automatiquement.
           </p>
         </div>
       </div>
@@ -262,9 +387,20 @@ export default function NouveauClientPage() {
                   aria-invalid={submitted && missing.tel1}
                   className="h-9 text-[13px]"
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Vérification automatique des doublons
-                </p>
+                {dupState === "checking" ? (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-sky-600">
+                    <Loader2 className="size-3 animate-spin" />
+                    Vérification des doublons…
+                  </p>
+                ) : phoneDup ? (
+                  <p className="mt-1 text-[11px] font-medium text-red-500">
+                    Numéro déjà associé à {phoneDup.fullname} • {phoneDup.code}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Contrôle automatique des doublons (téléphone et e-mail)
+                  </p>
+                )}
                 {err(missing.tel1)}
               </div>
               <div>
@@ -335,21 +471,14 @@ export default function NouveauClientPage() {
                 >
                   <Required>Ville / quartier</Required>
                 </Label>
-                <Select value={ville} onValueChange={(v) => setVille(v ?? "")}>
-                  <SelectTrigger
-                    id="nc-ville"
-                    className="w-full text-[13px] data-[size=default]:h-9"
-                  >
-                    <SelectValue placeholder="Sélectionner…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {VILLES.map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {v}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  id="nc-ville"
+                  value={ville}
+                  onChange={(e) => setVille(e.target.value)}
+                  aria-invalid={submitted && missing.ville}
+                  placeholder="ex. Bingerville — Faya"
+                  className="h-9 text-[13px]"
+                />
                 {err(missing.ville)}
               </div>
               <div>
@@ -360,21 +489,40 @@ export default function NouveauClientPage() {
                   <Required>Agence de référence</Required>
                 </Label>
                 <Select
-                  value={agence}
-                  onValueChange={(v) => setAgence(v ?? "")}
+                  value={agenceId}
+                  onValueChange={(v) => setAgenceId((v as string) ?? null)}
                 >
                   <SelectTrigger
                     id="nc-agence"
                     className="w-full text-[13px] data-[size=default]:h-9"
                   >
-                    <SelectValue placeholder="Sélectionner…" />
+                    {/* Affiche le nom de l'agence ; la valeur reste l'id envoyé au backend. */}
+                    <SelectValue placeholder="Sélectionner…">
+                      {(value: string | null) => {
+                        if (!value) return "Sélectionner…";
+                        return (
+                          agences.find((a) => String(a.id) === String(value))
+                            ?.name ?? String(value)
+                        );
+                      }}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {AGENCES.map((a) => (
-                      <SelectItem key={a} value={a}>
-                        {a}
+                    {agencesLoading ? (
+                      <SelectItem value="__loading" disabled>
+                        Chargement des agences…
                       </SelectItem>
-                    ))}
+                    ) : agences.length === 0 ? (
+                      <SelectItem value="__empty" disabled>
+                        Aucune agence disponible
+                      </SelectItem>
+                    ) : (
+                      agences.map((a) => (
+                        <SelectItem key={a.id} value={String(a.id)}>
+                          {a.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
                 <p className="mt-1 text-[11px] text-muted-foreground">
@@ -535,45 +683,84 @@ export default function NouveauClientPage() {
               <CardIcon icon={ScanSearch} />
             </div>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Recherche basée sur les numéros de téléphone.
+              Basé sur le téléphone (principal ou secondaire) et
+              l&apos;e-mail.
             </p>
-            {duplicate ? (
+            {dupState === "idle" && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-muted/50 p-3 ring-1 ring-border">
+                <ScanSearch className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  <span className="font-bold text-foreground">
+                    En attente de saisie
+                  </span>
+                  <br />
+                  Renseignez un numéro ou un e-mail pour lancer la vérification
+                  dans le portefeuille client.
+                </p>
+              </div>
+            )}
+            {dupState === "checking" && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-sky-50 p-3 ring-1 ring-sky-100">
+                <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-sky-600" />
+                <p className="text-[11px] leading-snug text-sky-800">
+                  <span className="font-bold">Vérification en cours…</span>
+                  <br />
+                  Contrôle des numéros et de l&apos;e-mail côté serveur.
+                </p>
+              </div>
+            )}
+            {dupState === "checked" && dupError && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-3 ring-1 ring-amber-100">
+                <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                <p className="text-[11px] leading-snug text-amber-800">
+                  <span className="font-bold">Vérification impossible</span>
+                  <br />
+                  {dupError}
+                </p>
+              </div>
+            )}
+            {dupState === "checked" && !dupError && duplicates.length === 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-green-50 p-3 ring-1 ring-green-100">
+                <CheckCircle className="mt-0.5 size-4 shrink-0 text-green-800" />
+                <p className="text-[11px] leading-snug text-green-900">
+                  <span className="font-bold">Aucun doublon détecté</span>
+                  <br />
+                  Les numéros et l&apos;e-mail sont uniques dans le portefeuille
+                  client.
+                </p>
+              </div>
+            )}
+            {dupState === "checked" && !dupError && duplicates.length > 0 && (
               <>
-                <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 p-3 ring-1 ring-red-100">
-                  <UserSearch className="mt-0.5 size-4 shrink-0 text-red-500" />
-                  <p className="text-[11px] leading-snug text-red-700">
-                    <span className="font-bold">Client existant détecté</span>
-                    <br />
-                    Le {duplicate.phone.replace("+225 ", "")} est déjà associé à{" "}
-                    {duplicate.prenoms} {duplicate.nom} • {duplicate.code} •{" "}
-                    {duplicate.agency}.
-                  </p>
+                <div className="mt-3 space-y-2">
+                  {duplicates.map((d) => (
+                    <div
+                      key={d.id}
+                      className="flex items-start gap-2 rounded-lg bg-red-50 p-3 ring-1 ring-red-100"
+                    >
+                      <UserSearch className="mt-0.5 size-4 shrink-0 text-red-500" />
+                      <div className="min-w-0 flex-1 text-[11px] leading-snug text-red-700">
+                        <p className="font-bold">{d.fullname}</p>
+                        <p>
+                          {d.phone_number} • {d.code} • {d.agency}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-[11px] font-bold"
+                        onClick={() => updatePath(`/clients/${d.code}`)}
+                      >
+                        <ExternalLink className="size-3.5" />
+                        Fiche
+                      </Button>
+                    </div>
+                  ))}
                 </div>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    Évitez une seconde fiche.
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1 text-[11px] font-bold"
-                    onClick={() => updatePath(`/clients/${duplicate.code}`)}
-                  >
-                    <ExternalLink className="size-3.5" />
-                    Ouvrir la fiche
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="mt-3 flex items-start gap-2 rounded-lg bg-green-50 p-3 ring-1 ring-green-100">
-                  <CheckCircle className="mt-0.5 size-4 shrink-0 text-green-800" />
-                  <p className="text-[11px] leading-snug text-green-900">
-                    <span className="font-bold">Aucun doublon détecté</span>
-                    <br />
-                    Les deux numéros sont uniques dans le portefeuille client.
-                  </p>
-                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Ce téléphone ou cet e-mail existe déjà. Évitez une seconde
+                  fiche.
+                </p>
               </>
             )}
           </section>
@@ -644,24 +831,6 @@ export default function NouveauClientPage() {
               </p>
             </div>
           </section>
-
-          <section className="rounded-xl border border-border bg-white p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-[13px] font-bold">Synchronisation</h2>
-              <CardIcon icon={CloudOff} />
-            </div>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Ce brouillon est stocké localement.
-            </p>
-            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-3 ring-1 ring-amber-100">
-              <UserCheck className="mt-0.5 size-4 shrink-0 text-amber-600" />
-              <p className="text-[11px] leading-snug text-amber-800">
-                <span className="font-bold">En attente du réseau</span>
-                <br />
-                La fiche sera envoyée sans ressaisie.
-              </p>
-            </div>
-          </section>
         </div>
       </div>
 
@@ -669,13 +838,16 @@ export default function NouveauClientPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Save className="size-3.5" />
-          Brouillon local enregistré il y a quelques secondes
+          {saving
+            ? "Enregistrement en cours…"
+            : "La fiche sera ajoutée au répertoire client partagé."}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="ghost"
             size="lg"
             className="px-4 text-xs font-bold"
+            disabled={saving}
             onClick={() => updatePath("/clients")}
           >
             Annuler
@@ -684,7 +856,8 @@ export default function NouveauClientPage() {
             variant="outline"
             size="lg"
             className="gap-1.5 px-4 text-xs font-bold"
-            onClick={() => handleSave(false)}
+            disabled={saving}
+            onClick={() => void handleSave(false)}
           >
             <Save className="size-3.5" />
             Enregistrer
@@ -692,10 +865,15 @@ export default function NouveauClientPage() {
           <Button
             size="lg"
             className="gap-1.5 px-4 text-xs font-bold"
-            onClick={() => handleSave(true)}
+            disabled={saving}
+            onClick={() => void handleSave(true)}
           >
-            <Plus className="size-4" />
-            Enregistrer et créer un dépôt
+            {saving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            {saving ? "Enregistrement…" : "Enregistrer et créer un dépôt"}
           </Button>
         </div>
       </div>

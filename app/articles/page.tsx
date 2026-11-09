@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import CategoryCreateModal from "@/components/article-category/CategoryCreateModal";
 import {
   getArticleCategoriesAction,
   getArticlesAction,
@@ -168,6 +169,7 @@ export default function ArticlesPage() {
   const [history, setHistory] = useState<ArticleHistoryEntry[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [onglet, setOnglet] = useState<Onglet>("tous");
   const [search, setSearch] = useState("");
   const [categorie, setCategorie] = useState("Toutes les catégories");
@@ -283,6 +285,10 @@ export default function ArticlesPage() {
   const retryHistory = () => {
     setHistoryError(null);
     setHistoryAttempt((attempt) => attempt + 1);
+  };
+
+  const handleCategoryCreated = (category: ApiArticleCategory) => {
+    setArticleCategories((prev) => (prev ? [...prev, category] : [category]));
   };
 
   const categories = useMemo(
@@ -657,6 +663,16 @@ export default function ArticlesPage() {
 
         {onglet === "categories" && (
           <div className="mt-3">
+            <div className="mb-3 flex items-center justify-end">
+              <Button
+                size="sm"
+                className="gap-1.5 text-[11px] font-bold"
+                onClick={() => setCategoryModalOpen(true)}
+              >
+                <Plus className="size-3.5" />
+                Nouvelle catégorie
+              </Button>
+            </div>
             {categoriesError && (
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 <p>{categoriesError}</p>
@@ -797,6 +813,12 @@ export default function ArticlesPage() {
           Voir les règles
         </Button>
       </div>
+
+      <CategoryCreateModal
+        open={categoryModalOpen}
+        onOpenChange={setCategoryModalOpen}
+        onCreated={handleCategoryCreated}
+      />
     </div>
   );
 }

@@ -84,6 +84,7 @@ function mapDeposit(d: ApiDeposit): Depot {
   const etat = (d.etat_label || "À trier") as EtatAtelier;
   const prestation: Prestation = d.payment_method === "express" ? "Express" : "Classique";
   return {
+    id: d.id,
     code: d.code,
     client: d.client_name || "—",
     phone: d.client_phone ?? undefined,
@@ -180,7 +181,7 @@ export default function DepotsPage() {
     resetPage();
   };
 
-  const openDetail = (d: Depot) => updatePath(`/depots/${d.code}`);
+  const openDetail = (d: Depot) => updatePath(`/depots/${d.id ?? d.code}`);
 
   return (
     <div className="space-y-5">

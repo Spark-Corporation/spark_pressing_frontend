@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { AppIcon } from "@/components/ui/app-icon";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { useGlobalData } from "@/contexts/GlobalContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,73 +22,209 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CLIENTS, type Client } from "@/app/clients/data";
+import { handleApiAction } from "@/functions/handleResponseApi";
+import { createDepositAction, getArticlesAction, getClientsAction } from "@/actions/AdminAction";
+import type {
+  ApiArticle,
+  ApiClient,
+  ArticlesEnvelope,
+  ClientsEnvelope,
+  DepositCreatePayload,
+  DepositLinePayload,
+} from "@/lib/types";
 import { formatFCFA } from "../data";
 
-interface Prestation {
-  id: string;
-  label: string;
-  panierLabel: string;
-  prix: number;
-  unite: "piece" | "kilo";
-  icon: AppIconName;
-  iconBg: string;
-}
+const DELAIS = [
+  { label: "Express • 24 h", hours: 24 },
+  { label: "Standard • 72 h", hours: 72 },
+  { label: "Économique • 5 j", hours: 120 },
+];
+const DELAI_DEFAUT = "Standard • 72 h";
 
-const CATALOGUE: Prestation[] = [
-  { id: "chemise", label: "Chemise", panierLabel: "Chemise blanche", prix: 2000, unite: "piece", icon: "shirt", iconBg: "bg-slate-100 text-slate-500" },
-  { id: "pantalon", label: "Pantalon", panierLabel: "Pantalon laine", prix: 2500, unite: "piece", icon: "trousers", iconBg: "bg-slate-100 text-slate-500" },
-  { id: "robe", label: "Robe", panierLabel: "Robe soie", prix: 3500, unite: "piece", icon: "dress", iconBg: "bg-amber-50 text-amber-600" },
-  { id: "costume", label: "Costume 2 p.", panierLabel: "Costume 2 pièces", prix: 6000, unite: "piece", icon: "fold", iconBg: "bg-amber-50 text-amber-700" },
-  { id: "couette", label: "Couette", panierLabel: "Couette 2 places", prix: 4500, unite: "kilo", icon: "box", iconBg: "bg-amber-50 text-amber-600" },
-  { id: "linge", label: "Linge au kilo", panierLabel: "Linge courant", prix: 2000, unite: "kilo", icon: "bag", iconBg: "bg-slate-100 text-slate-500" },
+const MOYENS: { label: string; value: string }[] = [
+  { label: "Espèces", value: "cash" },
+  { label: "Carte", value: "card" },
+  { label: "Mobile Money", value: "mobile_money" },
 ];
 
-const DEFAUTS = ["Taché", "Troué", "Déchiré", "Décoloré", "Bouton cassé", "Autre"];
-const MOYENS = ["Espèces", "Carte", "Mobile Money"];
+const AVATAR_BGS = [
+  "bg-amber-100 text-amber-700",
+  "bg-sky-100 text-sky-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-violet-100 text-violet-700",
+];
+
+const emptySubscribe = () => () => {};
+
+/**
+ * Référence locale générée une seule fois côté client (jamais pendant le SSR,
+ * d'où useSyncExternalStore : crypto.getRandomValues() est une valeur unstable en rendu).
+ */
+let cachedLocalRef: string | null = null;
+function generateLocalRef(): string {
+  if (cachedLocalRef === null) {
+    const bytes = new Uint8Array(4);
+    crypto.getRandomValues(bytes);
+    cachedLocalRef = `LOCAL-${[...bytes]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase()}`;
+  }
+  return cachedLocalRef;
+}
+const getServerLocalRef = () => "";
+
+interface Ligne {
+  id: number;
+  name: string;
+  unite: "piece" | "kilo";
+  qte: number;
+  classicPrice: number | null;
+  expressPrice: number | null;
+  unitPrice: number | null;
+  total: number;
+  acceptedDefects: string[];
+}
 
 function fmtQte(q: number): string {
   return (Math.round(q * 10) / 10).toString().replace(".", ",");
 }
 
+function initialsOf(fullname: string): string {
+  return (
+    fullname
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? "")
+      .join("") || "?"
+  );
+}
+
 export default function NouveauDepotPage() {
   const router = useRouter();
   const { updatePath } = useGlobalData();
+  const { logout } = useAuth();
 
+  // Données réelles chargées depuis l'API
+  const [clients, setClients] = useState<ApiClient[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientsError, setClientsError] = useState<string | null>(null);
+  const [articles, setArticles] = useState<ApiArticle[]>([]);
+  const [articlesLoading, setArticlesLoading] = useState(true);
+  const [articlesError, setArticlesError] = useState<string | null>(null);
+
+  // Formulaire
   const [clientSearch, setClientSearch] = useState("");
-  const [client, setClient] = useState<Client | null>(CLIENTS[0] ?? null);
+  const [client, setClient] = useState<ApiClient | null>(null);
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogTab, setCatalogTab] = useState<"piece" | "kilo">("piece");
-  const [qtes, setQtes] = useState<Record<string, number>>({ chemise: 2, pantalon: 1, linge: 3.4 });
-  const [activeKilo, setActiveKilo] = useState("linge");
-  const [traitement, setTraitement] = useState("Nettoyage standard");
-  const [delai, setDelai] = useState("Standard • 72 h");
-  const [defauts, setDefauts] = useState<string[]>(["Taché"]);
+  const [qtes, setQtes] = useState<Record<number, number>>({});
+  const [activeKilo, setActiveKilo] = useState<number | null>(null);
+  const [delai, setDelai] = useState(DELAI_DEFAUT);
+  const [defauts, setDefauts] = useState<string[]>([]);
   const [detailsVetement, setDetailsVetement] = useState("");
-  const [express, setExpress] = useState(true);
-  const [moyen, setMoyen] = useState("Espèces");
+  const [express, setExpress] = useState(false);
+  const [moyen, setMoyen] = useState("cash");
   const [promo, setPromo] = useState("");
-  const [remise, setRemise] = useState("1000");
+  const [remise, setRemise] = useState("");
   const [remiseMode, setRemiseMode] = useState<"FCFA" | "%">("FCFA");
-  const [autorisation, setAutorisation] = useState("Autorisation : Aïcha Koné • Client fidèle");
-  const [acompte, setAcompte] = useState("15000");
+  const [autorisation, setAutorisation] = useState("");
+  const [acompte, setAcompte] = useState("");
+
+  // Collecte / livraison
+  const [withCollection, setWithCollection] = useState(false);
+  const [withDelivery, setWithDelivery] = useState(false);
+  const [collectionFee, setCollectionFee] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState("");
+  const [deliveryZoneId, setDeliveryZoneId] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+
+  const [saving, setSaving] = useState(false);
+
+  // Référence locale transmise au backend (local_ref) — générée côté client uniquement
+  const localRef = useSyncExternalStore(emptySubscribe, generateLocalRef, getServerLocalRef);
+
+  const fetchClients = () =>
+    handleApiAction({
+      action: getClientsAction,
+      logout,
+      onSuccess: (res) => {
+        const envelope = res as ClientsEnvelope;
+        setClients(Array.isArray(envelope?.data) ? envelope.data : []);
+        setClientsLoading(false);
+      },
+      onError: (e) => {
+        setClientsError(e);
+        setClientsLoading(false);
+      },
+    });
+
+  const retryClients = () => {
+    setClientsLoading(true);
+    setClientsError(null);
+    void fetchClients();
+  };
+
+  const fetchArticles = () =>
+    handleApiAction({
+      action: getArticlesAction,
+      logout,
+      onSuccess: (res) => {
+        const envelope = res as ArticlesEnvelope;
+        setArticles(Array.isArray(envelope?.data) ? envelope.data : []);
+        setArticlesLoading(false);
+      },
+      onError: (e) => {
+        setArticlesError(e);
+        setArticlesLoading(false);
+      },
+    });
+
+  const retryArticles = () => {
+    setArticlesLoading(true);
+    setArticlesError(null);
+    void fetchArticles();
+  };
+
+  // Chargement des clients et du catalogue au montage
+  useEffect(() => {
+    void fetchClients();
+    void fetchArticles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const matches = useMemo(() => {
     const q = clientSearch.trim().toLowerCase();
     if (q === "") return [];
-    return CLIENTS.filter((c) =>
-      `${c.prenoms} ${c.nom} ${c.phone} ${c.code}`.toLowerCase().includes(q),
-    ).slice(0, 4);
-  }, [clientSearch]);
+    return clients
+      .filter((c) => `${c.fullname} ${c.phone_number} ${c.code}`.toLowerCase().includes(q))
+      .slice(0, 4);
+  }, [clientSearch, clients]);
 
-  const lignes = useMemo(
+  const lignes = useMemo<Ligne[]>(
     () =>
-      CATALOGUE.filter((p) => (qtes[p.id] ?? 0) > 0).map((p) => ({
-        ...p,
-        qte: qtes[p.id] ?? 0,
-        total: Math.round((qtes[p.id] ?? 0) * p.prix),
-      })),
-    [qtes],
+      articles
+        .map((a) => {
+          const qte = qtes[a.id] ?? 0;
+          const unite: "piece" | "kilo" = a.billing_mode === "kilo" ? "kilo" : "piece";
+          const classic = unite === "kilo" ? a.classic_price_kilo : a.classic_price;
+          const expr = unite === "kilo" ? a.express_price_kilo : a.express_price;
+          const unitPrice = express ? (expr ?? classic) : classic;
+          return {
+            id: a.id,
+            name: a.name,
+            unite,
+            qte,
+            classicPrice: classic,
+            expressPrice: expr,
+            unitPrice,
+            total: unitPrice != null ? Math.round(qte * unitPrice) : 0,
+            acceptedDefects: a.accepted_defects ?? [],
+          };
+        })
+        .filter((l) => l.qte > 0),
+    [articles, qtes, express],
   );
 
   const nbArticles = useMemo(
@@ -101,14 +238,32 @@ export default function NouveauDepotPage() {
     if (remiseMode === "%") return Math.round((sousTotal * Math.min(v, 100)) / 100);
     return Math.min(v, sousTotal);
   }, [remise, remiseMode, sousTotal]);
-  const supplement = express ? sousTotal : 0;
+  const supplement = express
+    ? lignes.reduce(
+        (n, l) =>
+          n +
+          (l.expressPrice != null && l.classicPrice != null
+            ? Math.round(l.qte * Math.max(0, l.expressPrice - l.classicPrice))
+            : 0),
+        0,
+      )
+    : 0;
+  const collectionFeeValue = withCollection ? Number(collectionFee) || 0 : 0;
+  const deliveryFeeValue = withDelivery ? Number(deliveryFee) || 0 : 0;
   const acompteValue = Number(acompte.replace(/[^0-9]/g, "")) || 0;
-  const total = sousTotal - remiseValue + supplement;
+  const total = Math.max(0, sousTotal + supplement + collectionFeeValue + deliveryFeeValue - remiseValue);
   const reste = Math.max(0, total - acompteValue);
 
-  const poids = qtes[activeKilo] ?? 0;
+  const poids = activeKilo != null ? (qtes[activeKilo] ?? 0) : 0;
+  const delaiHours = DELAIS.find((d) => d.label === delai)?.hours ?? 72;
 
-  const bump = (id: string, delta: number, kilo = false) => {
+  const defautsOptions = useMemo(() => {
+    const set = new Set<string>();
+    lignes.forEach((l) => l.acceptedDefects.forEach((d) => set.add(d)));
+    return [...set];
+  }, [lignes]);
+
+  const bump = (id: number, delta: number, kilo = false) => {
     setQtes((q) => {
       const next = Math.round(((q[id] ?? 0) + delta) * 10) / 10;
       return { ...q, [id]: Math.max(0, next) };
@@ -117,6 +272,7 @@ export default function NouveauDepotPage() {
   };
 
   const setPoids = (delta: number) => {
+    if (activeKilo == null) return;
     setQtes((q) => {
       const next = Math.round(((q[activeKilo] ?? 0) + delta) * 10) / 10;
       return { ...q, [activeKilo]: Math.max(0, next) };
@@ -147,7 +303,7 @@ export default function NouveauDepotPage() {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!client) {
       toast.error("Client requis", { description: "Recherchez et sélectionnez un client." });
       return;
@@ -156,35 +312,93 @@ export default function NouveauDepotPage() {
       toast.error("Panier vide", { description: "Ajoutez au moins une prestation." });
       return;
     }
-    toast.success("Dépôt LOCAL-COC-0042 enregistré", {
-      description: "File locale chiffrée • synchronisation au retour du réseau.",
-    });
-    updatePath("/depots");
+    const sansPrix = lignes.filter((l) => l.unitPrice == null);
+    if (sansPrix.length > 0) {
+      toast.error("Prix manquant", {
+        description: `Aucun tarif défini pour : ${sansPrix.map((l) => l.name).join(", ")}.`,
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const now = new Date();
+      const retrieve = new Date(now.getTime() + delaiHours * 3_600_000);
+      const pct = Math.min(Number(remise) || 0, 100);
+
+      const lines: DepositLinePayload[] = lignes.map((l) => {
+        const defs = l.acceptedDefects.filter((d) => defauts.includes(d));
+        return {
+          article_id: l.id,
+          quantity: l.unite === "piece" ? Math.round(l.qte) : l.qte,
+          pricing_type: l.unite,
+          ...(l.unite === "kilo" ? { weight_kg: l.qte } : {}),
+          unit_price: l.unitPrice as number,
+          designation: l.name,
+          express,
+          ...(defs.length > 0 ? { defects: defs } : {}),
+          ...(detailsVetement.trim() ? { internal_notes: detailsVetement.trim() } : {}),
+        };
+      });
+
+      const payload: DepositCreatePayload = {
+        client_id: client.id,
+        ...(remiseMode === "FCFA" && remiseValue > 0 ? { discount: remiseValue } : {}),
+        ...(remiseMode === "%" && pct > 0 ? { discount_percent: pct } : {}),
+        ...(promo.trim() ? { promo_code: promo.trim() } : {}),
+        ...(withCollection
+          ? {
+              with_collection: true,
+              ...(collectionFeeValue > 0 ? { collection_fee: collectionFeeValue } : {}),
+            }
+          : {}),
+        ...(withDelivery
+          ? {
+              with_delivery: true,
+              ...(deliveryFeeValue > 0 ? { delivery_fee: deliveryFeeValue } : {}),
+              ...(Number(deliveryZoneId) > 0 ? { delivery_zone_id: Number(deliveryZoneId) } : {}),
+              ...(deliveryAddress.trim() ? { delivery_address: deliveryAddress.trim() } : {}),
+            }
+          : {}),
+        ...(acompteValue > 0 ? { advanced: acompteValue } : {}),
+        payment_method: moyen,
+        deposit_date: now.toISOString(),
+        retrieve_date: retrieve.toISOString(),
+        local_ref: localRef || generateLocalRef(),
+        ...(autorisation.trim() ? { discount_reason: autorisation.trim() } : {}),
+        lines,
+      };
+
+      await handleApiAction({
+        action: createDepositAction,
+        params: payload,
+        logout,
+        onSuccess: (data) => {
+          toast.success(`Dépôt ${data.code ?? localRef} enregistré`, {
+            description: `${client.fullname} • ${formatFCFA(total)} FCFA.`,
+          });
+          updatePath("/depots");
+        },
+      });
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const visibles = articles
+    .filter((a) => (catalogTab === "kilo" ? a.billing_mode !== "piece" : a.billing_mode !== "kilo"))
+    .filter((a) => a.name.toLowerCase().includes(catalogSearch.trim().toLowerCase()));
+
+  const priceOf = (a: ApiArticle) =>
+    express
+      ? ((catalogTab === "kilo" ? a.express_price_kilo : a.express_price) ??
+        (catalogTab === "kilo" ? a.classic_price_kilo : a.classic_price))
+      : catalogTab === "kilo"
+        ? a.classic_price_kilo
+        : a.classic_price;
 
   return (
     <div className="space-y-5">
-      {/* Bandeau hors ligne */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-100">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100">
-          <AppIcon name="wifi" className="size-4 text-amber-600" />
-        </span>
-        <div className="min-w-0 flex-1 text-xs">
-          <p className="font-bold text-amber-800">Mode hors ligne — le réseau est indisponible</p>
-          <p className="text-amber-700">Dernière mise à jour du cache : 28 sept. à 16:21 • Les dépôts sont conservés dans une file locale chiffrée.</p>
-        </div>
-        <span className="text-[11px] font-bold text-amber-700">3 opérations en file</span>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5 border-amber-200 bg-white text-xs font-bold"
-          onClick={() => toast.info("Toujours hors ligne", { description: "La file sera envoyée dès le retour du réseau." })}
-        >
-          <AppIcon name="refresh" className="size-3.5" />
-          Réessayer
-        </Button>
-      </div>
-
       {/* En-tête */}
       <div className="flex flex-wrap items-start gap-3">
         <Button
@@ -199,20 +413,20 @@ export default function NouveauDepotPage() {
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">Nouveau dépôt</h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
-            Continuez la prise en charge avec les données disponibles localement.
+            Sélectionnez le client, composez la commande et encaissez l&apos;acompte.
           </p>
         </div>
         <div className="text-right">
-          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700">
-            LOCAL-COC-0042
+          <Badge variant="outline" className="text-[10px] font-bold">
+            {localRef || "LOCAL-…"}
           </Badge>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Numéro temporaire</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Référence locale</p>
         </div>
       </div>
 
       {/* Étapes */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {["1 • Client", "2 • Articles", "3 • Paiement", "4 • Ticket"].map((s, i) => {
+      <div className="grid grid-cols-3 gap-2">
+        {["1 • Client", "2 • Articles", "3 • Paiement"].map((s, i) => {
           const done = stepDone(i + 1);
           return (
             <div
@@ -235,29 +449,52 @@ export default function NouveauDepotPage() {
           <section className="rounded-xl border border-border bg-white p-5">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-sm font-bold">Client depuis le cache</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">12 486 fiches disponibles localement.</p>
+                <h2 className="text-sm font-bold">Client</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Recherchez par nom, téléphone ou code client.
+                </p>
               </div>
-              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700">
-                Données au 16:21
+              <Badge variant="outline" className="border-0 bg-muted text-[10px] font-bold text-muted-foreground">
+                {clientsLoading ? "Chargement…" : `${clients.length} fiches`}
               </Badge>
             </div>
-            <Label htmlFor="nc-search" className="mt-4 mb-1.5 text-xs font-semibold">
+            <Label htmlFor="nd-search" className="mt-4 mb-1.5 text-xs font-semibold">
               Rechercher
             </Label>
             <div className="relative">
               <AppIcon name="search" className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                id="nc-search"
+                id="nd-search"
                 value={clientSearch}
                 onChange={(e) => {
                   setClientSearch(e.target.value);
                   setClient(null);
                 }}
-                placeholder="+225 07 08 42 16 90"
+                placeholder="Nom, téléphone ou code…"
                 className="h-9 pl-9 text-[13px]"
               />
             </div>
+
+            {clientsError && (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                <span>Impossible de charger les clients.</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={retryClients}
+                  className="gap-1.5 border-red-200 bg-white text-xs font-bold"
+                >
+                  <AppIcon name="refresh" className="size-3.5" />
+                  Réessayer
+                </Button>
+              </div>
+            )}
+
+            {clientsLoading && !client && (
+              <p className="mt-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                Chargement des clients…
+              </p>
+            )}
 
             {matches.length > 0 && !client && (
               <div className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border">
@@ -271,18 +508,20 @@ export default function NouveauDepotPage() {
                     }}
                     className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50"
                   >
-                    <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", c.avatarBg)}>
-                      {c.initials}
+                    <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", AVATAR_BGS[c.id % AVATAR_BGS.length])}>
+                      {initialsOf(c.fullname)}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-semibold">
-                        {c.prenoms} {c.nom}
+                      <span className="block truncate text-[13px] font-semibold">{c.fullname}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {c.phone_number} • {c.code}
                       </span>
-                      <span className="block truncate text-[11px] text-muted-foreground">{c.phone} • {c.code}</span>
                     </span>
-                    <Badge variant="outline" className="border-0 bg-emerald-50 text-[10px] font-bold text-emerald-700">
-                      En cache
-                    </Badge>
+                    {c.loyalty_points > 0 && (
+                      <Badge variant="outline" className="border-0 bg-amber-50 text-[10px] font-bold text-amber-700">
+                        {c.loyalty_points} pts
+                      </Badge>
+                    )}
                   </button>
                 ))}
               </div>
@@ -290,20 +529,18 @@ export default function NouveauDepotPage() {
 
             {client && (
               <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-primary/40 bg-primary/[0.03] p-3">
-                <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold", client.avatarBg)}>
-                  {client.initials}
+                <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold", AVATAR_BGS[client.id % AVATAR_BGS.length])}>
+                  {initialsOf(client.fullname)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-bold">
-                    {client.prenoms} {client.nom}
-                  </p>
+                  <p className="truncate text-[13px] font-bold">{client.fullname}</p>
                   <p className="truncate text-[11px] text-muted-foreground">
-                    Niveau {client.groupe} • {client.points.toLocaleString("fr-FR").replace(/,/g, " ")} pts • {client.agency}
+                    {client.phone_number} • {client.code}
+                    {client.loyalty_points > 0
+                      ? ` • ${client.loyalty_points.toLocaleString("fr-FR").replace(/,/g, " ")} pts`
+                      : ""}
                   </p>
                 </div>
-                <Badge variant="outline" className="border-0 bg-emerald-50 text-[10px] font-bold text-emerald-700">
-                  En cache
-                </Badge>
                 <Button variant="ghost" size="icon-sm" aria-label="Changer de client" onClick={() => setClient(null)}>
                   <AppIcon name="close" className="size-4" />
                 </Button>
@@ -311,10 +548,16 @@ export default function NouveauDepotPage() {
             )}
 
             <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
-              <span>Créer ou fusionner une fiche client</span>
-              <Badge variant="outline" className="border-0 bg-muted text-[10px] font-bold text-muted-foreground">
-                Connexion requise
-              </Badge>
+              <span>Client introuvable ?</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 border-primary/40 text-[11px] font-bold text-primary"
+                onClick={() => updatePath("/clients/nouveau")}
+              >
+                <AppIcon name="plus" className="size-3" />
+                Créer une fiche
+              </Button>
             </div>
           </section>
 
@@ -322,11 +565,11 @@ export default function NouveauDepotPage() {
           <section className="rounded-xl border border-border bg-white p-5">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-sm font-bold">Catalogue local</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">Tarifs validés pour l&apos;agence Cocody.</p>
+                <h2 className="text-sm font-bold">Catalogue</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Prestations et tarifs de l&apos;établissement.</p>
               </div>
               <Badge variant="outline" className="border-0 bg-muted text-[10px] font-bold text-muted-foreground">
-                48 prestations
+                {articlesLoading ? "Chargement…" : `${articles.length} prestations`}
               </Badge>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -351,15 +594,39 @@ export default function NouveauDepotPage() {
               </Tabs>
             </div>
 
+            {articlesError && (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                <span>Impossible de charger le catalogue.</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={retryArticles}
+                  className="gap-1.5 border-red-200 bg-white text-xs font-bold"
+                >
+                  <AppIcon name="refresh" className="size-3.5" />
+                  Réessayer
+                </Button>
+              </div>
+            )}
+
+            {articlesLoading && (
+              <p className="mt-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                Chargement du catalogue…
+              </p>
+            )}
+
             <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {CATALOGUE.filter((p) => p.unite === catalogTab)
-                .filter((p) => p.label.toLowerCase().includes(catalogSearch.trim().toLowerCase()))
-                .map((p) => {
-                  const q = qtes[p.id] ?? 0;
+              {!articlesLoading &&
+                visibles.map((a) => {
+                  const q = qtes[a.id] ?? 0;
                   const selected = q > 0;
+                  const price = priceOf(a);
+                  const kilo = a.billing_mode === "kilo";
+                  const expressPrice = kilo ? a.express_price_kilo : a.express_price;
+                  const classicPrice = kilo ? a.classic_price_kilo : a.classic_price;
                   return (
                     <div
-                      key={p.id}
+                      key={a.id}
                       className={cn(
                         "relative rounded-xl border p-3",
                         selected ? "border-primary bg-primary/[0.03]" : "border-border bg-white",
@@ -367,80 +634,75 @@ export default function NouveauDepotPage() {
                     >
                       {selected && (
                         <span className="absolute top-2 right-2 flex size-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white">
-                          {p.unite === "kilo" ? fmtQte(q) : q}
+                          {kilo ? fmtQte(q) : q}
                         </span>
                       )}
-                      <span className={cn("flex size-9 items-center justify-center rounded-lg", p.iconBg)}>
-                        <AppIcon name={p.icon} className="size-4" />
+                      <span className={cn("flex size-9 items-center justify-center rounded-lg", kilo ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-500")}>
+                        <AppIcon name={kilo ? "box" : "hanger"} className="size-4" />
                       </span>
-                      <p className="mt-2 text-[13px] font-semibold">{p.label}</p>
+                      <p className="mt-2 truncate text-[13px] font-semibold" title={a.name}>{a.name}</p>
                       <p className="text-xs font-bold">
-                        {formatFCFA(p.prix)} FCFA{p.unite === "kilo" ? "/kg" : ""}
+                        {price != null ? (
+                          <>
+                            {formatFCFA(express ? (expressPrice ?? price) : price)} FCFA{kilo ? "/kg" : ""}
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">Prix non défini</span>
+                        )}
                       </p>
-                      {p.unite === "kilo" && selected && (
-                        <p className="text-[11px] text-muted-foreground">
-                          {fmtQte(q)} × {formatFCFA(p.prix)} = {formatFCFA(Math.round(q * p.prix))} FCFA
-                        </p>
+                      {express && expressPrice != null && classicPrice != null && expressPrice !== classicPrice && (
+                        <p className="text-[11px] text-muted-foreground line-through">{formatFCFA(classicPrice)} FCFA</p>
                       )}
                       <div className="mt-2 flex items-center gap-1">
                         <div className="flex items-center rounded-md border border-border">
                           <button
                             type="button"
-                            aria-label={`Retirer ${p.label}`}
-                            onClick={() => bump(p.id, p.unite === "kilo" ? -0.1 : -1, p.unite === "kilo")}
-                            className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
+                            aria-label={`Retirer ${a.name}`}
+                            disabled={price == null}
+                            onClick={() => bump(a.id, kilo ? -0.1 : -1, kilo)}
+                            className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
                           >
                             <AppIcon name="minus" className="size-3" />
                           </button>
-                          <span className="min-w-6 text-center text-xs font-bold">{p.unite === "kilo" ? fmtQte(q) : q}</span>
+                          <span className="min-w-6 text-center text-xs font-bold">{kilo ? fmtQte(q) : q}</span>
                           <button
                             type="button"
-                            aria-label={`Ajouter ${p.label}`}
-                            onClick={() => bump(p.id, p.unite === "kilo" ? 0.1 : 1, p.unite === "kilo")}
-                            className="flex size-6 items-center justify-center rounded-r-md bg-primary text-[11px] font-bold text-white"
+                            aria-label={`Ajouter ${a.name}`}
+                            disabled={price == null}
+                            onClick={() => bump(a.id, kilo ? 0.1 : 1, kilo)}
+                            className="flex size-6 items-center justify-center rounded-r-md bg-primary text-[11px] font-bold text-white disabled:opacity-40"
                           >
                             <AppIcon name="plus" className="size-3" />
                           </button>
                         </div>
                       </div>
                       <Badge variant="outline" className="mt-2 border-0 bg-muted text-[10px] font-semibold text-muted-foreground">
-                        Express
+                        {a.billing_mode_label}
                       </Badge>
                     </div>
                   );
                 })}
             </div>
 
+            {!articlesLoading && visibles.length === 0 && (
+              <p className="mt-3 rounded-lg bg-muted/50 p-3 text-center text-xs text-muted-foreground">
+                Aucune prestation {catalogTab === "kilo" ? "au kilo" : "à la pièce"} ne correspond à la recherche.
+              </p>
+            )}
+
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
-                <Label htmlFor="nd-traitement" className="mb-1.5 text-xs font-semibold">
-                  Traitement
-                </Label>
-                <Select value={traitement} onValueChange={(v) => setTraitement(v ?? "Nettoyage standard")}>
-                  <SelectTrigger id="nd-traitement" className="w-full text-[13px] data-[size=default]:h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["Nettoyage standard", "Soin premium", "Détachage intensif", "Blanchisserie"].map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
                 <Label htmlFor="nd-delai" className="mb-1.5 text-xs font-semibold">
-                  Délai
+                  Délai de restitution
                 </Label>
-                <Select value={delai} onValueChange={(v) => setDelai(v ?? "Standard • 72 h")}>
+                <Select value={delai} onValueChange={(v) => setDelai(v ?? DELAI_DEFAUT)}>
                   <SelectTrigger id="nd-delai" className="w-full text-[13px] data-[size=default]:h-9">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {["Standard • 72 h", "Express • 24 h", "Économique • 5 j"].map((d) => (
-                      <SelectItem key={d} value={d}>
-                        {d}
+                    {DELAIS.map((d) => (
+                      <SelectItem key={d.label} value={d.label}>
+                        {d.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -452,8 +714,9 @@ export default function NouveauDepotPage() {
                   <button
                     type="button"
                     aria-label="Réduire le poids"
+                    disabled={activeKilo == null}
                     onClick={() => setPoids(-0.1)}
-                    className="flex w-9 items-center justify-center text-muted-foreground hover:text-foreground"
+                    className="flex w-9 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
                   >
                     <AppIcon name="minus" className="size-3.5" />
                   </button>
@@ -461,13 +724,16 @@ export default function NouveauDepotPage() {
                   <button
                     type="button"
                     aria-label="Augmenter le poids"
+                    disabled={activeKilo == null}
                     onClick={() => setPoids(0.1)}
-                    className="flex w-9 items-center justify-center bg-primary text-white"
+                    className="flex w-9 items-center justify-center bg-primary text-white disabled:opacity-40"
                   >
                     <AppIcon name="plus" className="size-3.5" />
                   </button>
                 </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">Visible uniquement pour un service au kilo</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Ajuste la quantité du dernier article au kilo sélectionné
+                </p>
               </div>
             </div>
 
@@ -480,14 +746,20 @@ export default function NouveauDepotPage() {
                 Usage interne
               </Badge>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-              {DEFAUTS.map((d) => (
-                <Label key={d} htmlFor={`nd-def-${d}`} className="flex cursor-pointer items-center gap-2 text-xs font-medium">
-                  <Checkbox id={`nd-def-${d}`} checked={defauts.includes(d)} onCheckedChange={() => toggleDefaut(d)} />
-                  {d}
-                </Label>
-              ))}
-            </div>
+            {defautsOptions.length > 0 ? (
+              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                {defautsOptions.map((d) => (
+                  <Label key={d} htmlFor={`nd-def-${d}`} className="flex cursor-pointer items-center gap-2 text-xs font-medium">
+                    <Checkbox id={`nd-def-${d}`} checked={defauts.includes(d)} onCheckedChange={() => toggleDefaut(d)} />
+                    {d}
+                  </Label>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 rounded-lg bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
+                Sélectionnez au moins une prestation pour voir les défauts disponibles.
+              </p>
+            )}
             <Label htmlFor="nd-details" className="mt-3 mb-1.5 text-xs font-semibold">
               Détails internes du vêtement
             </Label>
@@ -508,7 +780,9 @@ export default function NouveauDepotPage() {
               </div>
               <Switch checked={express} onCheckedChange={setExpress} aria-label="Commande express" />
             </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">Tarif ×2 selon la politique du pressing • Délai express : 24 h</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Applique le tarif express du catalogue sur toutes les lignes • Délai conseillé : 24 h
+            </p>
 
             <Button size="lg" className="mt-3 w-full justify-center gap-1.5 text-xs font-bold" onClick={handleAddPanier}>
               <AppIcon name="plus" className="size-4" />
@@ -527,51 +801,56 @@ export default function NouveauDepotPage() {
                   {lignes.length} lignes • {nbArticles} articles
                 </p>
               </div>
-              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700">
-                Local
-              </Badge>
             </div>
             <div className="mt-3 space-y-3">
-              {lignes.map((l) => (
-                <div key={l.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-semibold">{l.panierLabel}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {l.unite === "piece" ? `Pièce • ${l.qte} × ${formatFCFA(l.prix)}` : `Kilo • ${fmtQte(l.qte)} kg × ${formatFCFA(l.prix)}`}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <div className="flex items-center rounded-md border border-border">
-                        <button
-                          type="button"
-                          aria-label={`Retirer ${l.label}`}
-                          onClick={() => bump(l.id, l.unite === "kilo" ? -0.1 : -1, l.unite === "kilo")}
-                          className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
-                        >
-                          <AppIcon name="minus" className="size-3" />
-                        </button>
-                        <span className="min-w-6 text-center text-xs font-bold">{l.unite === "kilo" ? fmtQte(l.qte) : l.qte}</span>
-                        <button
-                          type="button"
-                          aria-label={`Ajouter ${l.label}`}
-                          onClick={() => bump(l.id, l.unite === "kilo" ? 0.1 : 1, l.unite === "kilo")}
-                          className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
-                        >
-                          <AppIcon name="plus" className="size-3" />
-                        </button>
+              {lignes.map((l) => {
+                const delta =
+                  express && l.expressPrice != null && l.classicPrice != null
+                    ? Math.round(l.qte * Math.max(0, l.expressPrice - l.classicPrice))
+                    : 0;
+                return (
+                  <div key={l.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-semibold">{l.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {l.unite === "piece"
+                            ? `Pièce • ${l.qte} × ${formatFCFA(l.unitPrice ?? 0)}`
+                            : `Kilo • ${fmtQte(l.qte)} kg × ${formatFCFA(l.unitPrice ?? 0)}`}
+                        </p>
                       </div>
-                      <span className="w-16 text-right text-xs font-bold">{formatFCFA(l.total)} F</span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <div className="flex items-center rounded-md border border-border">
+                          <button
+                            type="button"
+                            aria-label={`Retirer ${l.name}`}
+                            onClick={() => bump(l.id, l.unite === "kilo" ? -0.1 : -1, l.unite === "kilo")}
+                            className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
+                          >
+                            <AppIcon name="minus" className="size-3" />
+                          </button>
+                          <span className="min-w-6 text-center text-xs font-bold">{l.unite === "kilo" ? fmtQte(l.qte) : l.qte}</span>
+                          <button
+                            type="button"
+                            aria-label={`Ajouter ${l.name}`}
+                            onClick={() => bump(l.id, l.unite === "kilo" ? 0.1 : 1, l.unite === "kilo")}
+                            className="flex size-6 items-center justify-center text-muted-foreground hover:text-foreground"
+                          >
+                            <AppIcon name="plus" className="size-3" />
+                          </button>
+                        </div>
+                        <span className="w-16 text-right text-xs font-bold">{formatFCFA(l.total)} F</span>
+                      </div>
                     </div>
+                    {delta > 0 && (
+                      <p className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                        <span>Express</span>
+                        <span className="font-bold">+ {formatFCFA(delta)} F</span>
+                      </p>
+                    )}
                   </div>
-                  {express && (
-                    <p className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-                      <span>Express (×2)</span>
-                      <span className="font-bold">+ {formatFCFA(l.total)} F</span>
-                    </p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
               {lignes.length === 0 && (
                 <p className="rounded-lg bg-muted/50 p-3 text-center text-xs text-muted-foreground">
                   Panier vide — sélectionnez des prestations dans le catalogue.
@@ -581,9 +860,14 @@ export default function NouveauDepotPage() {
             <div className="mt-3 space-y-1.5 border-t border-border pt-3 text-xs">
               <p className="flex justify-between"><span className="text-muted-foreground">Sous-total</span><span className="font-semibold">{formatFCFA(sousTotal)} FCFA</span></p>
               <p className="flex justify-between"><span className="text-muted-foreground">Remise</span><span className="font-semibold">− {formatFCFA(remiseValue)} FCFA</span></p>
-              <p className="flex justify-between"><span className="text-muted-foreground">Code promo</span><span className="font-semibold">{promo ? "En attente de synchro" : "Non appliqué"}</span></p>
-              {express && (
-                <p className="flex justify-between"><span className="text-muted-foreground">Supplément express</span><span className="font-bold">+ {formatFCFA(supplement)} FCFA</span></p>
+              {collectionFeeValue > 0 && (
+                <p className="flex justify-between"><span className="text-muted-foreground">Frais de collecte</span><span className="font-semibold">+ {formatFCFA(collectionFeeValue)} FCFA</span></p>
+              )}
+              {deliveryFeeValue > 0 && (
+                <p className="flex justify-between"><span className="text-muted-foreground">Frais de livraison</span><span className="font-semibold">+ {formatFCFA(deliveryFeeValue)} FCFA</span></p>
+              )}
+              {express && supplement > 0 && (
+                <p className="flex justify-between"><span className="text-muted-foreground">Dont supplément express</span><span className="font-bold">+ {formatFCFA(supplement)} FCFA</span></p>
               )}
               <p className="flex justify-between"><span className="text-muted-foreground">Avance / acompte</span><span className="font-semibold">− {formatFCFA(acompteValue)} FCFA</span></p>
               <p className="flex justify-between pt-1 text-base"><span className="font-bold">Total</span><span className="font-extrabold text-primary">{formatFCFA(total)} FCFA</span></p>
@@ -591,18 +875,18 @@ export default function NouveauDepotPage() {
           </section>
 
           <section className="rounded-xl border border-border bg-white p-4">
-            <h2 className="text-[13px] font-bold">Paiement et ticket</h2>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">L&apos;encaissement sera synchronisé au retour du réseau.</p>
+            <h2 className="text-[13px] font-bold">Paiement</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">L&apos;encaissement est enregistré avec le dépôt.</p>
             <div className="mt-3 grid grid-cols-3 gap-1.5">
               {MOYENS.map((m) => (
                 <Button
-                  key={m}
-                  variant={moyen === m ? "outline" : "ghost"}
+                  key={m.value}
+                  variant={moyen === m.value ? "outline" : "ghost"}
                   size="sm"
-                  onClick={() => setMoyen(m)}
-                  className={cn("h-8 text-[11px] font-semibold", moyen === m && "border-primary bg-primary/5 text-foreground")}
+                  onClick={() => setMoyen(m.value)}
+                  className={cn("h-8 text-[11px] font-semibold", moyen === m.value && "border-primary bg-primary/5 text-foreground")}
                 >
-                  {m}
+                  {m.label}
                 </Button>
               ))}
             </div>
@@ -616,16 +900,13 @@ export default function NouveauDepotPage() {
                 className="shrink-0 px-4 text-xs font-bold"
                 onClick={() =>
                   promo.trim()
-                    ? toast.info("Code promo en attente", { description: "Vérifié à la synchronisation du ticket." })
+                    ? toast.info("Code promo ajouté", { description: `« ${promo.trim()} » sera joint au dépôt.` })
                     : toast.error("Code vide", { description: "Saisissez un code promo." })
                 }
               >
                 Appliquer
               </Button>
             </div>
-            <p className="mt-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700">
-              Code promo vérifié à la synchronisation du ticket.
-            </p>
             <Label htmlFor="nd-remise" className="mt-3 mb-1.5 text-xs font-semibold">
               Remise
             </Label>
@@ -653,11 +934,15 @@ export default function NouveauDepotPage() {
                 ))}
               </div>
             </div>
+            <Label htmlFor="nd-autorisation" className="mt-3 mb-1.5 text-xs font-semibold">
+              Motif / autorisation de la remise
+            </Label>
             <Textarea
+              id="nd-autorisation"
               value={autorisation}
               onChange={(e) => setAutorisation(e.target.value)}
-              className="mt-2 min-h-16 text-[13px]"
-              aria-label="Autorisation de remise"
+              placeholder="ex. Remise accordée par la gérante"
+              className="min-h-16 text-[13px]"
             />
             <Label htmlFor="nd-acompte" className="mt-3 mb-1.5 text-xs font-semibold">
               Avance / acompte
@@ -674,20 +959,94 @@ export default function NouveauDepotPage() {
               <span className="text-muted-foreground">Reste à payer</span>
               <span className="text-[13px] font-extrabold">{formatFCFA(reste)} FCFA</span>
             </p>
-            <Button size="lg" className="mt-3 w-full justify-center gap-1.5 text-xs font-bold" onClick={handleSave}>
+            <Button
+              size="lg"
+              className="mt-3 w-full justify-center gap-1.5 text-xs font-bold"
+              onClick={() => void handleSave()}
+              disabled={saving}
+            >
               <AppIcon name="print" className="size-4" />
-              Enregistrer et imprimer
+              {saving ? "Enregistrement…" : "Enregistrer le dépôt"}
             </Button>
-            <p className="mt-2 rounded-lg bg-slate-100 p-2.5 text-[11px] leading-snug text-muted-foreground">
-              Enregistrement chiffré sur cet appareil. Synchronisation automatique dès reconnexion.
+          </section>
+
+          <section className="rounded-xl border border-border bg-white p-4">
+            <h2 className="text-[13px] font-bold">Collecte et livraison</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Frais ajoutés au total lorsqu&apos;ils sont activés.
             </p>
-            <div className="mt-2 space-y-2">
-              <Button variant="outline" size="sm" disabled className="w-full text-[11px] font-semibold" title="Connexion requise">
-                Consulter le solde fidélité
-              </Button>
-              <Button variant="outline" size="sm" disabled className="w-full text-[11px] font-semibold" title="Connexion requise">
-                Valider un code promotionnel
-              </Button>
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="nd-collecte" className="flex items-center gap-2 text-xs font-semibold">
+                  <AppIcon name="motorbike" className="size-4 text-muted-foreground" />
+                  Collecte à domicile
+                </Label>
+                <Switch id="nd-collecte" checked={withCollection} onCheckedChange={setWithCollection} aria-label="Collecte à domicile" />
+              </div>
+              {withCollection && (
+                <div>
+                  <Label htmlFor="nd-collection-fee" className="mb-1.5 text-xs font-semibold">
+                    Frais de collecte (FCFA)
+                  </Label>
+                  <Input
+                    id="nd-collection-fee"
+                    inputMode="numeric"
+                    value={collectionFee}
+                    onChange={(e) => setCollectionFee(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="0"
+                    className="h-9 text-[13px]"
+                  />
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="nd-livraison" className="flex items-center gap-2 text-xs font-semibold">
+                  <AppIcon name="truck" className="size-4 text-muted-foreground" />
+                  Livraison à domicile
+                </Label>
+                <Switch id="nd-livraison" checked={withDelivery} onCheckedChange={setWithDelivery} aria-label="Livraison à domicile" />
+              </div>
+              {withDelivery && (
+                <div className="space-y-2">
+                  <div>
+                    <Label htmlFor="nd-delivery-fee" className="mb-1.5 text-xs font-semibold">
+                      Frais de livraison (FCFA)
+                    </Label>
+                    <Input
+                      id="nd-delivery-fee"
+                      inputMode="numeric"
+                      value={deliveryFee}
+                      onChange={(e) => setDeliveryFee(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="0"
+                      className="h-9 text-[13px]"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="nd-zone" className="mb-1.5 text-xs font-semibold">
+                      Zone de livraison (ID)
+                    </Label>
+                    <Input
+                      id="nd-zone"
+                      inputMode="numeric"
+                      value={deliveryZoneId}
+                      onChange={(e) => setDeliveryZoneId(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="ex. 1"
+                      className="h-9 text-[13px]"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="nd-adresse" className="mb-1.5 text-xs font-semibold">
+                      Adresse de livraison
+                    </Label>
+                    <Input
+                      id="nd-adresse"
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                      placeholder="ex. Cocody, Riviera 3, rue L112"
+                      className="h-9 text-[13px]"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         </div>

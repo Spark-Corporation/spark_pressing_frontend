@@ -23,10 +23,21 @@ import {
   NetworkOverviewParams,
 } from "@/app/multi-agences/types";
 import type {
+  ApiClient,
+  ApiDeposit,
+  ApiDepositDetail,
+  ApiArticle,
+  ApiArticleCategory,
   ArticleCategoriesEnvelope,
+  ArticleCategoryCreatePayload,
+  ArticleCreatePayload,
   ArticleDetailEnvelope,
+  ArticleOptionsCatalog,
   ArticlesEnvelope,
   ArticlesHistoryEnvelope,
+  ClientCreatePayload,
+  ClientDuplicatesData,
+  DepositCreatePayload,
   RetrievalCenterEnvelope,
 } from "@/lib/types";
 import type { SettingsEnvelope } from "@/app/parametres/types";
@@ -55,6 +66,54 @@ export async function getClientsAction() {
   try {
     const result = await api.get("/clients");
     return { success: true, data: result };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function createClientAction(
+  params?: ClientCreatePayload,
+): Promise<
+  | { success: true; data: ApiClient }
+  | { success: false; error: string }
+> {
+  try {
+    const result = await api.post("/clients", params);
+    const data = (result?.data ?? result) as ApiClient;
+    if (!data || typeof data !== "object") {
+      throw new Error("Réponse inattendue du serveur lors de la création du client.");
+    }
+    return { success: true, data };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function checkClientDuplicatesAction(
+  params?: { phone?: string; email?: string; except_id?: number },
+): Promise<
+  | { success: true; data: ClientDuplicatesData }
+  | { success: false; error: string }
+> {
+  try {
+    const search = new URLSearchParams();
+    if (params?.phone) search.set("phone", params.phone);
+    if (params?.email) search.set("email", params.email);
+    if (params?.except_id) search.set("except_id", String(params.except_id));
+    const qs = search.toString();
+    if (!qs) {
+      return { success: true, data: { has_duplicates: false, matches: [] } };
+    }
+    const result = await api.get(`/clients/duplicates?${qs}`);
+    const data = result?.data ?? result;
+    if (
+      !data ||
+      typeof data.has_duplicates !== "boolean" ||
+      !Array.isArray(data.matches)
+    ) {
+      throw new Error("Réponse inattendue du serveur pour le contrôle des doublons.");
+    }
+    return { success: true, data: data as ClientDuplicatesData };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -91,6 +150,24 @@ export async function getArticleCategoriesAction(): Promise<
   }
 }
 
+export async function createArticleCategoryAction(
+  params?: ArticleCategoryCreatePayload,
+): Promise<
+  | { success: true; data: ApiArticleCategory }
+  | { success: false; error: string }
+> {
+  try {
+    const result = await api.post("/article-categories", params);
+    const data = (result?.data ?? result) as ApiArticleCategory;
+    if (!data || typeof data !== "object" || !data.id || !data.name) {
+      throw new Error("Réponse inattendue du serveur lors de la création de la catégorie.");
+    }
+    return { success: true, data };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function getArticleDetailAction(
   code: string,
 ): Promise<
@@ -103,6 +180,24 @@ export async function getArticleDetailAction(
       throw new Error("Réponse inattendue du serveur pour l’article.");
     }
     return { success: true, data: result as ArticleDetailEnvelope };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function createArticleAction(
+  params?: ArticleCreatePayload,
+): Promise<
+  | { success: true; data: ApiArticle }
+  | { success: false; error: string }
+> {
+  try {
+    const result = await api.post("/articles", params);
+    const data = (result?.data ?? result) as ApiArticle;
+    if (!data || typeof data !== "object" || !data.code) {
+      throw new Error("Réponse inattendue du serveur lors de la création de l'article.");
+    }
+    return { success: true, data };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -123,6 +218,28 @@ export async function getArticlesHistoryAction(): Promise<
   }
 }
 
+/**
+ * Catalogue d'options de traitement (états, rendus, services, priorités).
+ * L'API n'expose pas de liste dédiée : on lit les options du détail d'un article
+ * existant (GET /articles/{code}). Renvoie null si aucun article n'existe encore.
+ */
+export async function getArticleOptionsAction(): Promise<
+  | { success: true; data: ArticleOptionsCatalog | null }
+  | { success: false; error: string }
+> {
+  try {
+    const list = await api.get("/articles");
+    const first = (list?.data ?? list)?.[0] as { code?: string } | undefined;
+    if (!first?.code) return { success: true, data: null };
+    const detail = await api.get(`/articles/${encodeURIComponent(first.code)}`);
+    const data = detail?.data ?? detail;
+    if (!data?.options) return { success: true, data: null };
+    return { success: true, data: data.options as ArticleOptionsCatalog };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 // ------------------------- DASHBOARD ---------------------------------
 export async function getDashboardAction() {
   try {
@@ -138,6 +255,46 @@ export async function getDepositsAction() {
   try {
     const result = await api.get("/deposits");
     return { success: true, data: result };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function createDepositAction(
+  params?: DepositCreatePayload,
+): Promise<
+  | { success: true; data: ApiDeposit }
+  | { success: false; error: string }
+> {
+  try {
+    const result = await api.post("/deposits", params);
+    const data = (result?.data ?? result) as ApiDeposit;
+    if (!data || typeof data !== "object") {
+      throw new Error("Réponse inattendue du serveur lors de la création du dépôt.");
+    }
+    return { success: true, data };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function getDepositDetailAction(
+  params?: { id: string | number },
+): Promise<
+  | { success: true; data: ApiDepositDetail }
+  | { success: false; error: string }
+> {
+  try {
+    const id = params?.id;
+    if (id === undefined || id === null || `${id}`.trim() === "") {
+      throw new Error("Dépôt inconnu. Veuillez réessayer.");
+    }
+    const result = await api.get(`/deposits/${encodeURIComponent(String(id))}`);
+    const data = result?.data ?? result;
+    if (!data || typeof data !== "object" || !data.code) {
+      throw new Error("Réponse inattendue du serveur pour le détail du dépôt.");
+    }
+    return { success: true, data: data as ApiDepositDetail };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

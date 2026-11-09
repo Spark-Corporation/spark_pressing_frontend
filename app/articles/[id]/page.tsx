@@ -42,7 +42,6 @@ function mapArticleDetail(detail: ApiArticleDetail): Article {
 
 async function EditContent({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (id === "nouveau") return <ArticleEditView article={null} />;
 
   const result = await getArticleDetailAction(id);
   if (!result.success) {

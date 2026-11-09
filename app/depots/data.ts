@@ -3,6 +3,7 @@ export type EtatAtelier = "Prêt" | "En lavage" | "À trier" | "Séchage" | "Rep
 export type Synchro = "À jour" | "En attente";
 
 export interface Depot {
+  id?: number;
   code: string;
   client: string;
   phone?: string;
@@ -63,4 +64,40 @@ export function statutCommercial(d: Depot): StatutCommercial {
 
 export function formatFCFA(n: number): string {
   return `${n.toLocaleString("fr-FR").replace(/,/g, " ")}`;
+}
+
+/** Fuseau métier (Cameroun) : rendu identique serveur/navigateur, sans écart d'hydratation. */
+export const BUSINESS_TZ = "Africa/Douala";
+
+/** « 14 oct., 09:00 » */
+export function formatDateTimeFr(iso?: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: BUSINESS_TZ,
+  });
+}
+
+/** « 14 octobre 2026 » */
+export function formatDateFr(iso?: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: BUSINESS_TZ,
+  });
+}
+
+/** « mars 2025 » */
+export function formatMonthYearFr(iso?: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+    timeZone: BUSINESS_TZ,
+  });
 }
