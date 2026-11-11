@@ -28,6 +28,7 @@ import type {
   ApiDepositDetail,
   ApiArticle,
   ApiArticleCategory,
+  ClientDetailEnvelope,
   ArticleCategoriesEnvelope,
   ArticleCategoryCreatePayload,
   ArticleCreatePayload,
@@ -66,6 +67,23 @@ export async function getClientsAction() {
   try {
     const result = await api.get("/clients");
     return { success: true, data: result };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function getClientDetailAction(
+  id: number | string,
+): Promise<
+  | { success: true; data: ClientDetailEnvelope }
+  | { success: false; error: string }
+> {
+  try {
+    const result = await api.get(`/clients/${encodeURIComponent(id)}`);
+    if (!result || typeof result !== "object" || result.data === undefined) {
+      throw new Error("Réponse inattendue du serveur pour la fiche client.");
+    }
+    return { success: true, data: result as ClientDetailEnvelope };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -169,13 +187,13 @@ export async function createArticleCategoryAction(
 }
 
 export async function getArticleDetailAction(
-  code: string,
+  id: string | number,
 ): Promise<
   | { success: true; data: ArticleDetailEnvelope }
   | { success: false; error: string }
 > {
   try {
-    const result = await api.get(`/articles/${encodeURIComponent(code)}`);
+    const result = await api.get(`/articles/${encodeURIComponent(id)}`);
     if (!result || typeof result !== "object" || result.data === undefined) {
       throw new Error("Réponse inattendue du serveur pour l’article.");
     }
@@ -203,6 +221,28 @@ export async function createArticleAction(
   }
 }
 
+export async function updateArticleAction(params?: {
+  id: number;
+  payload: ArticleCreatePayload;
+}): Promise<
+  | { success: true; data: ApiArticle }
+  | { success: false; error: string }
+> {
+  try {
+    if (!params || !Number.isInteger(params.id) || params.id < 1) {
+      throw new Error("Identifiant article invalide pour la modification.");
+    }
+    const result = await api.put(`/articles/${params.id}`, params.payload);
+    const data = (result?.data ?? result) as ApiArticle;
+    if (!data || typeof data !== "object" || !data.code) {
+      throw new Error("Réponse inattendue du serveur lors de la modification de l'article.");
+    }
+    return { success: true, data };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function getArticlesHistoryAction(): Promise<
   | { success: true; data: ArticlesHistoryEnvelope }
   | { success: false; error: string }
@@ -218,23 +258,44 @@ export async function getArticlesHistoryAction(): Promise<
   }
 }
 
-/**
- * Catalogue d'options de traitement (états, rendus, services, priorités).
- * L'API n'expose pas de liste dédiée : on lit les options du détail d'un article
- * existant (GET /articles/{code}). Renvoie null si aucun article n'existe encore.
- */
+/** Catalogue d'options de traitement pour la création d'un article. */
 export async function getArticleOptionsAction(): Promise<
-  | { success: true; data: ArticleOptionsCatalog | null }
+  | { success: true; data: ArticleOptionsCatalog }
   | { success: false; error: string }
 > {
   try {
+    const [rendersResult, defectsResult] = await Promise.all([
+      api.get("/renders"),
+      api.get("/laundry-statuses"),
+    ]);
+    const renders = rendersResult?.data ?? rendersResult;
+    const defects = defectsResult?.data ?? defectsResult;
+    if (!Array.isArray(renders) || !Array.isArray(defects)) {
+      throw new Error("Réponse inattendue du serveur pour les options de traitement.");
+    }
+
+    let existingOptions: Partial<ArticleOptionsCatalog> = {};
     const list = await api.get("/articles");
-    const first = (list?.data ?? list)?.[0] as { code?: string } | undefined;
-    if (!first?.code) return { success: true, data: null };
-    const detail = await api.get(`/articles/${encodeURIComponent(first.code)}`);
-    const data = detail?.data ?? detail;
-    if (!data?.options) return { success: true, data: null };
-    return { success: true, data: data.options as ArticleOptionsCatalog };
+    const first = (list?.data ?? list)?.[0] as { id?: number } | undefined;
+    if (first?.id) {
+      const detail = await api.get(`/articles/${first.id}`);
+      const data = detail?.data ?? detail;
+      existingOptions = data?.options ?? {};
+    }
+
+    return {
+      success: true,
+      data: {
+        defects: defects
+          .filter((defect) => defect.status === "active")
+          .map((defect) => ({ code: defect.code, label: defect.title })),
+        renders: renders
+          .filter((render) => render.status === true)
+          .map((render) => ({ id: render.id, title: render.title })),
+        services: existingOptions.services ?? [],
+        priorities: existingOptions.priorities ?? [],
+      },
+    };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

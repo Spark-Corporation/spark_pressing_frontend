@@ -81,22 +81,104 @@ export interface ApiClient {
   agency_id: number;
   code: string;
   fullname: string;
-  email: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  initials?: string | null;
+  email: string | null;
   phone_number: string;
+  phone_secondary?: string | null;
   address: string | null;
-  city: string;
+  city: string | null;
   loyalty_points: number;
   wallet_balance: number;
   sponsor_code: string;
   referred_by_id: number | null;
-  last_deposit_at: string;
+  last_deposit_at: string | null;
   status: boolean;
+  contact_preference?: string | { code: string; label: string } | null;
+  consent_sms?: boolean;
+  consent_email?: boolean;
+  archived_at?: string | null;
+  tier?: { code: string; label: string } | null;
+  agency?: { id: number; name: string } | null;
+  deposits_count?: number | null;
+  frequency_per_month?: number | null;
+  lifetime_value?: number | null;
+  crm_status?: { code: string; label: string } | null;
 }
 
 export interface ClientsEnvelope {
   data: ApiClient[];
   meta: { page: number; per_page: number; total: number; last_page: number };
   errors: null;
+}
+
+export interface ApiClientDetail extends ApiClient {
+  stats: {
+    lifetime_value: number;
+    client_since: string;
+    deposits: number;
+    frequency_per_month: number;
+    average_basket: number;
+    average_basket_delta_percent_6m: number;
+    balance_due: number;
+  };
+  loyalty: {
+    points: number;
+    value: number;
+    tier: { code: string; label: string };
+    next_tier: { code: string; label: string; min_points: number } | null;
+    points_to_next_tier: number;
+    progress_percent: number;
+    conversion: { points: number; value: number; minimum_points: number };
+  };
+  points_history: {
+    label: string;
+    reason: string;
+    reference: string;
+    points: number;
+    at: string;
+  }[];
+  timeline: {
+    type: string;
+    title: string;
+    detail: string;
+    reference: string;
+    at: string;
+  }[];
+  recent_orders: {
+    id: number;
+    code: string;
+    date: string;
+    articles: number;
+    total: number;
+    status: { code: string; label: string };
+  }[];
+  preferences: {
+    contact_channel: string;
+    pickup_slot: string;
+    favorite_treatment: string;
+    instructions: string;
+  };
+  notes: {
+    count: number;
+    items: { id: number; body: string; author: string; created_at: string }[];
+  };
+  account: {
+    client_since: string;
+    agency: string;
+    marketing_consent: boolean;
+    consents: {
+      sms: boolean;
+      email: boolean;
+      updated_at: string;
+    };
+    archived_at: string | null;
+  };
+}
+
+export interface ClientDetailEnvelope {
+  data: ApiClientDetail;
 }
 
 /* ------------------------ Clients (création) ------------------------------ */
@@ -246,15 +328,15 @@ export interface ArticleCreatePayload {
   repass_price_kilo?: number | null;
   status: boolean;
   code: string;
-  category_id: number;
+  category_id: number | null;
   billing_mode: "piece" | "kilo" | "mixed";
   icon?: string;
   allow_discount?: boolean;
-  round_to?: number;
+  round_to?: number | null;
   price_editable?: boolean;
-  classic_hours?: number;
-  express_hours?: number;
-  repass_hours?: number;
+  classic_hours?: number | null;
+  express_hours?: number | null;
+  repass_hours?: number | null;
   priority?: string;
   accepted_defects?: string[];
   compatible_renders?: number[];

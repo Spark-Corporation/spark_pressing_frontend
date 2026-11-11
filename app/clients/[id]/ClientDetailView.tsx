@@ -76,10 +76,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Client } from "../data";
+import { formatClientMoney, type Client } from "../data";
 import type { ClientDetail, ClientNote, PointEvent } from "./detail";
 
-const CONVERT_OPTIONS = [500, 1000, 2000];
 const CANAUX = ["WhatsApp", "Appel", "SMS", "E-mail"];
 
 export default function ClientDetailView({ client, detail }: { client: Client; detail: ClientDetail }) {
@@ -89,16 +88,22 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
   const [points, setPoints] = useState(detail.points);
   const [events, setEvents] = useState<PointEvent[]>(detail.pointEvents);
   const [notes, setNotes] = useState<ClientNote[]>(detail.notes);
+  const [noteCount, setNoteCount] = useState(detail.notesCount);
   const [prefs, setPrefs] = useState(detail.prefs);
   const [noteOpen, setNoteOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
-  const [convertAmount, setConvertAmount] = useState("500");
+  const [convertAmount, setConvertAmount] = useState(String(detail.minimumPoints));
   const [draftPrefs, setDraftPrefs] = useState(detail.prefs);
 
-  const pointValue = `${(points * 5).toLocaleString("fr-FR").replace(/,/g, " ")} FCFA`;
+  const pointValue = points === detail.points
+    ? detail.pointValue
+    : formatClientMoney(points * detail.pointValuePerPoint);
+  const convertOptions = [1, 2, 4]
+    .map((multiplier) => detail.minimumPoints * multiplier)
+    .filter((amount, index, amounts) => amount > 0 && amounts.indexOf(amount) === index);
 
   const todayLabel = () =>
     new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
@@ -109,6 +114,7 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
       return;
     }
     setNotes((n) => [{ text: noteText.trim(), author: "Aïcha Koné", date: todayLabel() }, ...n]);
+    setNoteCount((count) => count + 1);
     setNoteText("");
     setNoteOpen(false);
     toast.success("Note ajoutée", { description: "Elle est visible par les équipes." });
@@ -116,15 +122,15 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
 
   const handleConvert = () => {
     const amount = Number(convertAmount);
-    if (amount > points) {
-      toast.error("Points insuffisants", { description: "Choisissez un montant inférieur au solde." });
+    if (amount < detail.minimumPoints || amount > points) {
+      toast.error("Conversion impossible", { description: "Vérifiez le minimum requis et le solde de points." });
       return;
     }
     setPoints((p) => p - amount);
     setEvents((e) => [{ label: "Remise fidélité", date: todayLabel(), ref: "CMD-CONV", delta: -amount }, ...e]);
     setConvertOpen(false);
     toast.success("Remise créée", {
-      description: `${amount} pts convertis en ${(amount * 5).toLocaleString("fr-FR").replace(/,/g, " ")} FCFA de remise.`,
+      description: `${amount} pts convertis en ${formatClientMoney(amount * detail.pointValuePerPoint)} de remise.`,
     });
   };
 
@@ -158,10 +164,18 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
         </span>
         <div className="min-w-0 flex-1">
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-extrabold tracking-tight sm:text-2xl">
-            {client.prenoms} {client.nom}
-            <Badge variant="outline" className="gap-1 border-0 bg-emerald-50 text-[10px] font-bold text-emerald-700">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              Active
+            {client.fullname}
+            <Badge
+              variant="outline"
+              className={cn(
+                "gap-1 border-0 text-[10px] font-bold",
+                client.statut === "Actif" && "bg-emerald-50 text-emerald-700",
+                client.statut === "VIP" && "bg-primary text-white",
+                client.statut === "Inactif" && "bg-muted text-muted-foreground",
+                client.statut === "Archivé" && "bg-red-50 text-red-600",
+              )}
+            >
+              {client.statut}
             </Badge>
             <Badge variant="outline" className="border-0 bg-amber-100 text-[10px] font-bold text-amber-700">
               Niveau {client.groupe}
@@ -171,15 +185,17 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
             <span className="inline-flex items-center gap-1.5">
               <Phone className="size-3.5" />
               {client.phone}
+              {client.phoneSecondary && ` • ${client.phoneSecondary}`}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Mail className="size-3.5" />
-              {client.prenoms.toLowerCase()}.{client.nom.toLowerCase().replace(/[^a-z]/g, "")}@gmail.com
+              {client.email || "E-mail non renseigné"}
             </span>
             <span className="inline-flex items-center gap-1.5 font-semibold text-foreground">
               <MapPin className="size-3.5 text-amber-600" />
-              {client.agency}
+              {client.agency}{client.city && ` • ${client.city}`}
             </span>
+            {client.address && <span>{client.address}</span>}
             <span>{client.code}</span>
           </p>
         </div>
@@ -194,7 +210,7 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
               }
             />
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => toast.success("WhatsApp", { description: `Conversation ouverte avec ${client.prenoms}.` })}>
+              <DropdownMenuItem onClick={() => toast.success("WhatsApp", { description: `Conversation ouverte avec ${client.fullname}.` })}>
                 <MessageCircle className="size-3.5" /> WhatsApp
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => toast.success("Appel", { description: `Appel vers ${client.phone}…` })}>
@@ -277,12 +293,12 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
               <Sparkles className="size-4" />
               FIDÉLITÉ SPARK
             </p>
-            <Badge className="border-0 bg-amber-100 text-[10px] font-bold text-amber-800">{client.groupe}</Badge>
+            <Badge className="border-0 bg-amber-100 text-[10px] font-bold text-amber-800">{detail.loyaltyTier}</Badge>
           </div>
           <p className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl">{points.toLocaleString("fr-FR").replace(/,/g, " ")}</p>
           <p className="mt-1 text-xs text-white/70">points disponibles • valeur {pointValue}</p>
           <div className="mt-4 flex items-center justify-between text-[10px] font-bold">
-            <span className="text-white">{client.groupe.toUpperCase()}</span>
+            <span className="text-white">{detail.loyaltyTier.toUpperCase()}</span>
             <span className="text-secondary">{detail.nextNiveau} • {detail.nextAt} pts</span>
           </div>
           <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/15">
@@ -301,10 +317,12 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Convertir en remise</DialogTitle>
-                <DialogDescription>100 points = 500 FCFA de remise • minimum 500 points.</DialogDescription>
+                <DialogDescription>
+                  {detail.conversionPoints} points = {formatClientMoney(detail.conversionValue)} de remise • minimum {detail.minimumPoints} points.
+                </DialogDescription>
               </DialogHeader>
               <RadioGroup value={convertAmount} onValueChange={setConvertAmount} className="gap-2">
-                {CONVERT_OPTIONS.map((opt) => (
+                {convertOptions.map((opt) => (
                   <Label
                     key={opt}
                     htmlFor={`conv-${opt}`}
@@ -317,7 +335,7 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
                     <RadioGroupItem id={`conv-${opt}`} value={String(opt)} disabled={opt > points} />
                     {opt.toLocaleString("fr-FR").replace(/,/g, " ")} pts
                     <span className="ml-auto font-bold text-emerald-600">
-                      = {(opt * 5).toLocaleString("fr-FR").replace(/,/g, " ")} FCFA
+                      = {formatClientMoney(opt * detail.pointValuePerPoint)}
                     </span>
                   </Label>
                 ))}
@@ -378,7 +396,7 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
           </div>
           <p className="mt-3 flex items-center gap-1.5 text-[11px] text-white/70">
             <Info className="size-3.5 shrink-0" />
-            100 points = 500 FCFA de remise • conversion minimale : 500 points
+            {detail.conversionPoints} points = {formatClientMoney(detail.conversionValue)} de remise • conversion minimale : {detail.minimumPoints} points
           </p>
         </div>
       </div>
@@ -561,7 +579,7 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
             <div className="flex items-center justify-between">
               <h2 className="text-[13px] font-bold">Notes internes</h2>
               <Badge variant="outline" className="border-0 bg-muted text-[10px] font-bold text-muted-foreground">
-                {notes.length} note{notes.length > 1 ? "s" : ""}
+                {noteCount} note{noteCount > 1 ? "s" : ""}
               </Badge>
             </div>
             <div className="mt-3 space-y-2.5">
@@ -594,10 +612,26 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
                 <span className="font-bold">{client.agency}</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Solde portefeuille</span>
+                <span className="font-bold">{client.soldePortefeuille ?? "—"}</span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Consentement marketing</span>
-                <Badge variant="outline" className="border-0 bg-emerald-50 text-[10px] font-bold text-emerald-700">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "border-0 text-[10px] font-bold",
+                    detail.consentement === "Autorisé"
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
                   {detail.consentement}
                 </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Consentements SMS / e-mail</span>
+                <span className="font-bold">{detail.consentSms ? "SMS" : "—"} / {detail.consentEmail ? "e-mail" : "—"}</span>
               </div>
             </div>
             <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
@@ -617,7 +651,7 @@ export default function ClientDetailView({ client, detail }: { client: Client; d
                   <AlertDialogHeader>
                     <AlertDialogTitle>Archiver ce client ?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      {client.prenoms} {client.nom} ne pourra plus effectuer de dépôts. Dépôts, paiements, notes et
+                      {client.fullname} ne pourra plus effectuer de dépôts. Dépôts, paiements, notes et
                       points resteront accessibles en lecture seule.
                     </AlertDialogDescription>
                   </AlertDialogHeader>

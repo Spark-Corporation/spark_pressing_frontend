@@ -57,5 +57,5 @@ export const FLUX_HEURES = [
 ];
 
 export function formatFCFA(n: number): string {
-  return `${n.toLocaleString("fr-FR").replace(/,/g, " ")}`;
+  return `${n?.toLocaleString("fr-FR").replace(/,/g, " ")}`;
 }

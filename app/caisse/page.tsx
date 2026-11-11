@@ -103,7 +103,7 @@ export default function CaissePage() {
       ];
     }
     return [
-      { label: "Recettes du jour", value: `${formatFCFA(cashCenter.kpis.receipts.value)} FCFA`, sub: `${cashCenter.kpis.receipts.delta_percent > 0 ? "+" : ""}${cashCenter.kpis.receipts.delta_percent.toLocaleString("fr-FR")} % vs période précédente`, icon: TrendingUp, iconBg: "bg-stone-100 text-stone-500" },
+      { label: "Recettes du jour", value: `${formatFCFA(cashCenter.kpis.receipts.value)} FCFA`, sub: `${cashCenter.kpis.receipts.delta_percent > 0 ? "+" : ""}${cashCenter.kpis.receipts.delta_percent?.toLocaleString("fr-FR")} % vs période précédente`, icon: TrendingUp, iconBg: "bg-stone-100 text-stone-500" },
       { label: "Dépenses", value: `${formatFCFA(cashCenter.kpis.expenses.value)} FCFA`, sub: `${cashCenter.kpis.expenses.count} sorties`, icon: ArrowUpRight, iconBg: "bg-red-50 text-red-500" },
       { label: "Impayés", value: `${formatFCFA(cashCenter.kpis.unpaid.value)} FCFA`, sub: `${cashCenter.kpis.unpaid.deposits} dépôts concernés`, icon: ReceiptText, iconBg: "bg-amber-50 text-amber-600" },
       { label: "Écart de caisse", value: `${formatFCFA(cashCenter.kpis.difference.value)} FCFA`, sub: cashCenter.kpis.difference.label, icon: CheckCircle2, iconBg: "bg-emerald-50 text-emerald-600" },

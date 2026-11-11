@@ -207,7 +207,7 @@ export default function NouvelArticlePage() {
       action: getArticleOptionsAction,
       logout,
       onSuccess: (res) => {
-        const catalog = res as ArticleOptionsCatalog | null;
+        const catalog = res as ArticleOptionsCatalog;
         setOptions(catalog);
         if (catalog?.priorities?.length && !catalog.priorities.some((p) => p.code === priorite)) {
           setPriorite(catalog.priorities[0].code);
@@ -241,7 +241,7 @@ export default function NouvelArticlePage() {
 
   const checks = [
     {
-      ok: nom.trim() !== "" && code.trim() !== "" && categoryId !== "",
+      ok: nom.trim() !== "" && code.trim() !== "",
       label: "Informations obligatoires",
     },
     {
@@ -304,7 +304,7 @@ export default function NouvelArticlePage() {
       repass_price_kilo: priceOrNull(repassageKilo),
       status: actif,
       code: code.trim().toUpperCase(),
-      category_id: Number(categoryId),
+      category_id: categoryId ? Number(categoryId) : null,
       billing_mode: billingMode,
       ...(icone.trim() ? { icon: icone.trim() } : {}),
       allow_discount: optRemise,
@@ -398,18 +398,24 @@ export default function NouvelArticlePage() {
               </div>
               <div>
                 <Label htmlFor="ar-cat" className="mb-1.5 text-xs font-semibold">
-                  Catégorie
+                  Catégorie <span className="font-normal text-muted-foreground">(facultative)</span>
                 </Label>
                 <div className="flex items-center gap-1.5">
-                  <Select value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")}>
+                  <Select
+                    value={categoryId || "__aucune__"}
+                    onValueChange={(v) => setCategoryId(v === "__aucune__" ? "" : v ?? "")}
+                  >
                     <SelectTrigger id="ar-cat" className="w-full text-[13px] data-[size=default]:h-9">
-                      <SelectValue placeholder={categoriesLoading ? "Chargement…" : "Choisir"}>
+                      <SelectValue placeholder={categoriesLoading ? "Chargement…" : "Aucune catégorie"}>
                         {(value) =>
-                          categories.find((category) => String(category.id) === value)?.name ?? ""
+                          value === "__aucune__"
+                            ? "Aucune catégorie"
+                            : categories.find((category) => String(category.id) === value)?.name ?? ""
                         }
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="__aucune__">Aucune catégorie</SelectItem>
                       {categories.map((c) => (
                         <SelectItem key={c.id} value={String(c.id)}>
                           {c.name}
@@ -681,8 +687,8 @@ export default function NouvelArticlePage() {
                       <Label key={d.code} htmlFor={`ar-defaut-${d.code}`} className="flex cursor-pointer items-center gap-2 text-xs font-medium">
                         <Checkbox
                           id={`ar-defaut-${d.code}`}
-                          checked={defauts.includes(d.label)}
-                          onCheckedChange={() => toggleList(defauts, d.label, setDefauts)}
+                          checked={defauts.includes(d.code)}
+                          onCheckedChange={() => toggleList(defauts, d.code, setDefauts)}
                         />
                         {d.label}
                       </Label>
@@ -844,7 +850,7 @@ export default function NouvelArticlePage() {
         <div className="space-y-4">
           <div className="overflow-hidden rounded-2xl bg-primary p-4 text-white">
             <Badge className="border-0 bg-secondary/20 text-[10px] font-bold tracking-wide text-secondary">
-              {categories.find((c) => String(c.id) === categoryId)?.name ?? "Catégorie"} • {mode}
+              {categories.find((c) => String(c.id) === categoryId)?.name ?? "Aucune catégorie"} • {mode}
             </Badge>
             <p className="mt-2 text-lg font-extrabold">{nom || "Nouvel article"}</p>
             <p className="text-[11px] text-white/60">{code || "—"} • Délai {delaiResume}</p>

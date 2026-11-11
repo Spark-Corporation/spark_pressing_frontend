@@ -1,18 +1,27 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
-import { CLIENTS } from "../data";
-import { getClientDetail } from "./detail";
+import { notFound, redirect } from "next/navigation";
+import { getClientDetailAction } from "@/actions/AdminAction";
+import { mapClientDetail } from "./detail";
 import ClientDetailView from "./ClientDetailView";
 
-export function generateStaticParams() {
-  return CLIENTS.map((c) => ({ code: c.code }));
-}
-
-async function DetailContent({ params }: { params: Promise<{ code: string }> }) {
-  const { code } = await params;
-  const found = getClientDetail(code);
-  if (!found) notFound();
-  return <ClientDetailView client={found.client} detail={found.detail} />;
+async function DetailContent({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const result = await getClientDetailAction(id);
+  if (!result.success) {
+    if (result.error.includes("Non autorisé")) redirect("/login");
+    const message = result.error.toLowerCase();
+    if (
+      message.includes("404") ||
+      message.includes("introuvable") ||
+      message.includes("not found") ||
+      message.includes("no query results for model")
+    ) {
+      notFound();
+    }
+    throw new Error(result.error);
+  }
+  const mapped = mapClientDetail(result.data.data);
+  return <ClientDetailView client={mapped.client} detail={mapped.detail} />;
 }
 
 function DetailFallback() {
@@ -36,7 +45,7 @@ function DetailFallback() {
   );
 }
 
-export default function ClientDetailRoute({ params }: { params: Promise<{ code: string }> }) {
+export default function ClientDetailRoute({ params }: { params: Promise<{ id: string }> }) {
   return (
     <Suspense fallback={<DetailFallback />}>
       <DetailContent params={params} />

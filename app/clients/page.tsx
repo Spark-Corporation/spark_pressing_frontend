@@ -10,6 +10,7 @@ import {
   Gift,
   ListFilter,
   MoreHorizontal,
+  Package,
   Search,
   UserPlus,
   Users,
@@ -39,62 +40,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AGENCES, type Client, type FideliteGroupe, type ClientStatut } from "./data";
+import { mapApiClient, type Client, type FideliteGroupe } from "./data";
 import { handleApiAction } from "@/functions/handleResponseApi";
 import { getClientsAction } from "@/actions/AdminAction";
 import { useAuth } from "@/contexts/AuthContext";
-import { type ApiClient, type ClientsEnvelope } from "@/lib/types";
+import { type ClientsEnvelope } from "@/lib/types";
 
 const PAGE_SIZE = 8;
 type Periode = "jour" | "semaine" | "mois";
 
-function mapClient(client: ApiClient): Client {
-  const fullname = client.fullname || "";
-  const parts = fullname.split(" ");
-  const prenoms = parts[0] || "";
-  const nom = parts.slice(1).join(" ") || "";
-  const initials = ((prenoms.charAt(0) || "") + (nom.charAt(0) || "")).toUpperCase();
-  const date = client.last_deposit_at ? new Date(client.last_deposit_at) : null;
-  const lastDeposit = date
-    ? date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " • " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-    : "—";
-  const daysAgo = date ? Math.floor((Date.now() - date.getTime()) / 86400000) : 999;
-  const points = client.loyalty_points || 0;
-  const groupe: FideliteGroupe = points >= 5000 ? "Platine" : points >= 3000 ? "Or" : points >= 1000 ? "Argent" : "Essentiel";
-  const statut: ClientStatut = client.status ? "Actif" : "Inactif";
-  const valeur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "XOF", maximumFractionDigits: 0 }).format(client.wallet_balance || 0);
-  const avatarBg = {
-    Essentiel: "bg-slate-200 text-slate-600",
-    Argent: "bg-slate-200 text-slate-600",
-    Or: "bg-amber-100 text-amber-700",
-    Platine: "bg-sky-100 text-sky-700",
-  }[groupe];
-  return {
-    id: String(client.id),
-    code: client.code,
-    nom,
-    prenoms,
-    fullname,
-    initials,
-    phone: client.phone_number,
-    agency: client.city || "—",
-    lastDeposit,
-    daysAgo,
-    frequence: "—",
-    valeur,
-    points,
-    groupe,
-    statut,
-    avatarBg,
-  };
+function getGroupeBadge(groupe: FideliteGroupe): string {
+  switch (groupe.toLowerCase()) {
+    case "argent":
+      return "bg-slate-200/70 text-slate-600";
+    case "or":
+      return "bg-amber-100 text-amber-700";
+    case "platine":
+      return "bg-sky-100 text-sky-700";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
 }
-
-const groupeBadge: Record<FideliteGroupe, string> = {
-  Essentiel: "bg-muted text-muted-foreground",
-  Argent: "bg-slate-200/70 text-slate-600",
-  Or: "bg-amber-100 text-amber-700",
-  Platine: "bg-sky-100 text-sky-700",
-};
 
 function StatutBadge({ statut }: { statut: Client["statut"] }) {
   if (statut === "VIP") {
@@ -139,7 +105,7 @@ export default function ClientsPage() {
       if (periode === "semaine" && c.daysAgo > 7) return false;
       if (fidelite !== "Tous" && c.groupe !== fidelite) return false;
       if (agency !== "Toutes" && c.agency !== agency) return false;
-      if (q && !`${c.fullname ?? ""} ${c.phone} ${c.code}`.toLowerCase().includes(q)) return false;
+      if (q && !`${c.fullname} ${c.phone} ${c.email ?? ""} ${c.code} ${c.sponsorCode ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [search, periode, fidelite, agency, clients]);
@@ -158,9 +124,10 @@ export default function ClientsPage() {
       logout,
       onSuccess: (res) => {
         const envelope = res as ClientsEnvelope;
-        setClients((envelope.data || []).map(mapClient));
+        setClients((envelope.data || []).map(mapApiClient));
         setTotal(envelope.meta?.total || 0);
         setLoadingPage(false);
+        console.log("Clients : ", envelope.data);
       },
       onError: () => {
         setLoadingPage(false);
@@ -169,27 +136,40 @@ export default function ClientsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const agencyOptions = useMemo(
+    () => [...new Set(clients.map((client) => client.agency).filter((name) => name !== "—"))].sort(),
+    [clients],
+  );
+
   const stats = useMemo(() => {
     const actifs = clients.filter((c) => c.statut === "Actif" || c.statut === "VIP").length;
     const thisWeek = clients.filter((c) => c.daysAgo <= 7).length;
-    const vip = clients.filter((c) => c.groupe === "Platine" || c.statut === "VIP").length;
+    const vip = clients.filter((c) => c.statut === "VIP").length;
     const totalPoints = clients.reduce((s, c) => s + c.points, 0);
     const vipPct = clients.length > 0 ? Math.round((vip / clients.length) * 1000) / 10 : 0;
 
     const kpiList = [
-      { label: "Clients actifs", value: total.toLocaleString("fr-FR"), badge: `${actifs} actifs`, icon: Users, iconBg: "bg-stone-100 text-stone-500" },
-      { label: "Nouveaux clients", value: String(thisWeek), badge: "cette semaine", icon: UserPlus, iconBg: "bg-stone-100 text-stone-500" },
+      { label: "Clients répertoriés", value: total.toLocaleString("fr-FR"), badge: `${actifs} actifs`, icon: Users, iconBg: "bg-stone-100 text-stone-500" },
+      { label: "Dépôts récents", value: String(thisWeek), badge: "7 derniers jours", icon: Package, iconBg: "bg-stone-100 text-stone-500" },
       { label: "Clients VIP", value: String(vip), badge: `${vipPct} % du portefeuille`, icon: Crown, iconBg: "bg-amber-50 text-amber-600" },
       { label: "Points attribués", value: totalPoints >= 1000 ? `${(totalPoints / 1000).toFixed(0)} k` : String(totalPoints), badge: "cumulés", icon: Gift, iconBg: "bg-amber-50 text-amber-600" },
     ];
 
-    const byGroupe: Record<FideliteGroupe, number> = { Essentiel: 0, Argent: 0, Or: 0, Platine: 0 };
-    clients.forEach((c) => { byGroupe[c.groupe]++; });
+    const knownGroups = ["Essentiel", "Argent", "Or", "Platine"];
+    const groupLabels = [...knownGroups, ...new Set(clients.map((c) => c.groupe).filter((g) => !knownGroups.includes(g)))];
+    const byGroupe: Record<string, number> = Object.fromEntries(groupLabels.map((group) => [group, 0]));
+    clients.forEach((c) => { byGroupe[c.groupe] = (byGroupe[c.groupe] ?? 0) + 1; });
     const count = clients.length || 1;
     const repartition = [
       { label: "Essentiel", pct: Math.round((byGroupe.Essentiel / count) * 100), bar: "[&_[data-slot=progress-indicator]]:bg-slate-400", dot: "bg-slate-400" },
       { label: "Argent", pct: Math.round((byGroupe.Argent / count) * 100), bar: "[&_[data-slot=progress-indicator]]:bg-emerald-500", dot: "bg-emerald-500" },
       { label: "Or & Platine", pct: Math.round(((byGroupe.Or + byGroupe.Platine) / count) * 100), bar: "[&_[data-slot=progress-indicator]]:bg-amber-500", dot: "bg-amber-500" },
+      ...groupLabels.filter((group) => !knownGroups.includes(group)).map((group) => ({
+        label: group,
+        pct: Math.round((byGroupe[group] / count) * 100),
+        bar: "[&_[data-slot=progress-indicator]]:bg-primary",
+        dot: "bg-primary",
+      })),
     ];
 
     const fideliteTotaux = [
@@ -198,6 +178,11 @@ export default function ClientsPage() {
       { key: "Argent" as const, label: "Argent", total: byGroupe.Argent.toLocaleString("fr-FR") },
       { key: "Or" as const, label: "Or", total: byGroupe.Or.toLocaleString("fr-FR") },
       { key: "Platine" as const, label: "Platine", total: byGroupe.Platine.toLocaleString("fr-FR") },
+      ...groupLabels.filter((group) => !knownGroups.includes(group)).map((group) => ({
+        key: group,
+        label: group,
+        total: byGroupe[group].toLocaleString("fr-FR"),
+      })),
     ];
 
     return { kpiList, repartition, fideliteTotaux, byGroupe };
@@ -265,7 +250,7 @@ export default function ClientsPage() {
           <div className="relative">
             <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Rechercher par nom, téléphone ou code client…"
+              placeholder="Rechercher par nom, téléphone, e-mail ou code client…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -335,7 +320,7 @@ export default function ClientsPage() {
           {showFilters && (
             <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-3 text-xs">
               <span className="mr-1 font-medium text-muted-foreground">Agence</span>
-              {["Toutes", ...AGENCES].map((a) => (
+              {["Toutes", ...agencyOptions].map((a) => (
                 <Button
                   key={a}
                   variant={agency === a ? "default" : "ghost"}
@@ -407,7 +392,7 @@ export default function ClientsPage() {
                 {(
                   [
                     ["frequence", "Fréquence"],
-                    ["valeur", "Valeur client"],
+                    ["valeur", "Valeur vie"],
                     ["points", "Points"],
                     ["groupe", "Groupe"],
                   ] as const
@@ -434,7 +419,7 @@ export default function ClientsPage() {
                 <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">AGENCE</TableHead>
                 <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">DERNIER DÉPÔT</TableHead>
                 {columns.frequence && <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">FRÉQUENCE</TableHead>}
-                {columns.valeur && <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">VALEUR CLIENT</TableHead>}
+                {columns.valeur && <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">VALEUR VIE / SOLDE</TableHead>}
                 {columns.points && <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">POINTS</TableHead>}
                 {columns.groupe && <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">GROUPE</TableHead>}
                 <TableHead className="text-[10px] font-bold tracking-wide text-muted-foreground">STATUT</TableHead>
@@ -454,18 +439,37 @@ export default function ClientsPage() {
                           {c.fullname}
                         </span>
                         <span className="block text-[11px] text-muted-foreground">{c.code}</span>
+                        {c.email && <span className="block text-[11px] text-muted-foreground">{c.email}</span>}
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs">{c.phone}</TableCell>
-                  <TableCell className="text-xs">{c.agency}</TableCell>
+                  <TableCell className="text-xs">
+                    <span className="block">{c.phone}</span>
+                    {c.phoneSecondary && <span className="block text-[11px] text-muted-foreground">{c.phoneSecondary}</span>}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <span className="block">{c.agency}</span>
+                    {c.city && c.city !== c.agency && <span className="block text-[11px] text-muted-foreground">{c.city}</span>}
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{c.lastDeposit}</TableCell>
-                  {columns.frequence && <TableCell className="text-xs text-muted-foreground">{c.frequence}</TableCell>}
-                  {columns.valeur && <TableCell className="text-xs font-bold">{c.valeur}</TableCell>}
+                  {columns.frequence && (
+                    <TableCell className="text-xs text-muted-foreground">
+                      <span className="block">{c.frequence}</span>
+                      {c.depositsCount != null && <span className="block text-[11px]">{c.depositsCount} dépôts</span>}
+                    </TableCell>
+                  )}
+                  {columns.valeur && (
+                    <TableCell className="text-xs font-bold">
+                      <span className="block">{c.valeur}</span>
+                      <span className="block text-[11px] font-normal text-muted-foreground">
+                        Portefeuille : {c.soldePortefeuille ?? "—"}
+                      </span>
+                    </TableCell>
+                  )}
                   {columns.points && <TableCell className="text-xs font-bold text-amber-600">{c.points.toLocaleString("fr-FR").replace(/,/g, " ")}</TableCell>}
                   {columns.groupe && (
                     <TableCell>
-                      <Badge variant="outline" className={cn("border-0 text-[10px] font-semibold", groupeBadge[c.groupe])}>
+                      <Badge variant="outline" className={cn("border-0 text-[10px] font-semibold", getGroupeBadge(c.groupe))}>
                         {c.groupe}
                       </Badge>
                     </TableCell>
@@ -483,7 +487,7 @@ export default function ClientsPage() {
                         }
                       />
                       <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onClick={() => updatePath(`/clients/${c.code}`)}>
+                        <DropdownMenuItem onClick={() => updatePath(`/clients/${c.id}`)}>
                           Voir la fiche
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => updatePath("/depots/nouveau")}>

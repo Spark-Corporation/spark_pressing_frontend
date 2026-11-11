@@ -1,4 +1,6 @@
-export type FideliteGroupe = "Essentiel" | "Argent" | "Or" | "Platine";
+export { formatClientMoney, mapApiClient } from "./client-mapper";
+
+export type FideliteGroupe = string;
 export type ClientStatut = "Actif" | "Inactif" | "Archivé" | "VIP";
 
 export interface Client {
@@ -9,16 +11,30 @@ export interface Client {
   fullname?: string;
   initials: string;
   phone: string;
+  phoneSecondary?: string | null;
+  email?: string | null;
   agency: string;
+  city?: string | null;
+  address?: string | null;
   lastDeposit: string;
   /** Ancienneté du dernier dépôt, en jours (référence : lun. 28 sept. 2026) */
   daysAgo: number;
   frequence: string;
   valeur: string;
+  soldePortefeuille?: string;
+  depositsCount?: number | null;
+  frequencyPerMonth?: number | null;
+  lifetimeValue?: number | null;
   points: number;
   groupe: FideliteGroupe;
   statut: ClientStatut;
   avatarBg: string;
+  sponsorCode?: string | null;
+  referredById?: number | null;
+  contactPreference?: string | null;
+  consentSms?: boolean;
+  consentEmail?: boolean;
+  archivedAt?: string | null;
 }
 
 export const CLIENTS: Client[] = [
@@ -55,8 +71,6 @@ export const FIDELITE_TOTAUX: { key: FideliteGroupe | "Tous"; label: string; tot
   { key: "Or", label: "Or", total: "358" },
   { key: "Platine", label: "Platine", total: "126" },
 ];
-
-export const AGENCES = ["Bingerville", "Cocody", "Riviera 3", "Plateau", "Marcory"];
 
 /** Normalise un numéro pour la détection de doublons (chiffres uniquement). */
 export function normalizePhone(phone: string): string {

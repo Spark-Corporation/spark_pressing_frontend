@@ -749,7 +749,7 @@ export default function NouveauClientPage() {
                         variant="outline"
                         size="sm"
                         className="gap-1 text-[11px] font-bold"
-                        onClick={() => updatePath(`/clients/${d.code}`)}
+                        onClick={() => updatePath(`/clients/${d.id}`)}
                       >
                         <ExternalLink className="size-3.5" />
                         Fiche
